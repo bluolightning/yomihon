@@ -1099,6 +1099,17 @@
     <string name="action_move_down">Move down</string>
     <string name="label_priority">Priority:</string>
 
+    <!-- Dictionary Parser Preferences -->
+    <string name="pref_category_dictionary_parser">Dictionary Parser</string>
+    <string name="pref_parser_language_override">Parser language override</string>
+    <string name="pref_parser_language_override_summary">Force a specific language parser instead of auto-detecting from the query text</string>
+    <string name="parser_language_auto">Auto-detect</string>
+    <string name="parser_language_japanese">Japanese</string>
+    <string name="parser_language_korean">Korean</string>
+    <string name="parser_language_chinese">Chinese</string>
+    <string name="parser_language_english">English</string>
+    <string name="parser_language_french">French</string>
+
     <!-- AnkiDroid Settings -->
     <string name="anki_add_success">Added card to AnkiDroid</string>
     <string name="anki_add_duplicate">Duplicate card not added</string>
