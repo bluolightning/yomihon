@@ -21,6 +21,7 @@ class SearchDictionaryTerms(
         val word: String,
         val sourceOffset: Int,
         val sourceLength: Int,
+        val isDictionaryMatch: Boolean = false,
     )
 
     private val dictionaryScriptCache = java.util.concurrent.ConcurrentHashMap<Long, Set<Script>>()
@@ -66,8 +67,9 @@ class SearchDictionaryTerms(
     private fun detectScript(text: String, allowedScripts: Set<Script>?): Script {
         var hasCjk = false
         var scanned = 0
+        val punctuationChars = PUNCTUATION_CHARS.filterIsInstance<Char>().toSet()
         for (ch in text) {
-            if (ch in LEADING_PUNCTUATION || ch.isWhitespace()) continue
+            if (ch in punctuationChars || ch.isWhitespace()) continue
             if (ch in '\u3041'..'\u309F' || ch in '\u30A0'..'\u30FF') return Script.JAPANESE
             if (ch in '\uAC00'..'\uD7A3' || ch in '\u1100'..'\u11FF') return Script.KOREAN
             if (ch in '\u4E00'..'\u9FFF' || ch in '\u3400'..'\u4DBF') {
@@ -75,6 +77,7 @@ class SearchDictionaryTerms(
             } else if (ch.isLetter() && ch.code < 0x300) {
                 return when {
                     allowedScripts == null -> Script.ENGLISH
+                    Script.JAPANESE in allowedScripts && allowedScripts.size == 1 -> Script.JAPANESE
                     Script.FRENCH in allowedScripts -> Script.FRENCH
                     else -> Script.ENGLISH
                 }
@@ -90,7 +93,7 @@ class SearchDictionaryTerms(
                 else -> Script.JAPANESE
             }
         } else {
-            Script.JAPANESE
+            allowedScripts?.firstOrNull() ?: Script.JAPANESE
         }
     }
 
@@ -121,12 +124,15 @@ class SearchDictionaryTerms(
     ): List<DictionaryTerm> {
         if (dictionaryIds.isEmpty()) return emptyList()
 
-        return when (resolveScript(query, parserLanguage, dictionaryIds)) {
-            Script.JAPANESE -> searchJa(query, dictionaryIds)
-            Script.ENGLISH, Script.FRENCH -> searchDirect(query, dictionaryIds).ifEmpty {
-                searchJa(query, dictionaryIds)
+        val charsToTrim = PUNCTUATION_CHARS.filterIsInstance<Char>().toSet()
+        val normalizedQuery = query.trim { it in charsToTrim || it.isWhitespace() }.removeSuffix("...")
+
+        return when (resolveScript(normalizedQuery, parserLanguage, dictionaryIds)) {
+            Script.JAPANESE -> searchJa(normalizedQuery, dictionaryIds)
+            Script.ENGLISH, Script.FRENCH -> searchDirect(normalizedQuery, dictionaryIds).ifEmpty {
+                searchJa(normalizedQuery, dictionaryIds)
             }
-            else -> searchDirect(query, dictionaryIds)
+            else -> searchDirect(normalizedQuery, dictionaryIds)
         }
     }
 
@@ -219,17 +225,14 @@ class SearchDictionaryTerms(
                 val directResult = firstWordDirect(sentence, dictionaryIds, script)
                 val jaResult = firstWordJa(sentence, dictionaryIds)
 
-                if (jaResult.word.length > 1 &&
-                    (
-                        jaResult.sourceLength > directResult.sourceLength ||
-                            !dictionaryContains(directResult.word, dictionaryIds)
-                        )
-                ) {
+                if (jaResult.isDictionaryMatch && directResult.isDictionaryMatch) {
+                    if (jaResult.sourceLength >= directResult.sourceLength) jaResult else directResult
+                } else if (jaResult.isDictionaryMatch) {
                     jaResult
-                } else if (directResult.word.length > 1) {
+                } else if (directResult.isDictionaryMatch) {
                     directResult
                 } else {
-                    if (jaResult.word.length > 1) jaResult else directResult
+                    if (jaResult.sourceLength >= directResult.sourceLength) jaResult else directResult
                 }
             }
             else -> firstWordDirect(sentence, dictionaryIds, script)
@@ -246,7 +249,8 @@ class SearchDictionaryTerms(
     /** Japanese segmentation: strips leading punctuation, converts romaji, then deinflects. */
     private suspend fun firstWordJa(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {
         // Remove leading punctuation and brackets, while preserving offset in source text
-        val leadingTrimmedCount = sentence.indexOfFirst { it !in LEADING_PUNCTUATION }
+        val punctuationChars = PUNCTUATION_CHARS.filterIsInstance<Char>().toSet()
+        val leadingTrimmedCount = sentence.indexOfFirst { it !in punctuationChars }
             .let { if (it == -1) sentence.length else it }
         val sanitized = sentence.drop(leadingTrimmedCount)
         if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
@@ -279,6 +283,7 @@ class SearchDictionaryTerms(
                             word = substring,
                             sourceOffset = leadingTrimmedCount,
                             sourceLength = sourceLength,
+                            isDictionaryMatch = true,
                         )
                     }
                 }
@@ -291,12 +296,14 @@ class SearchDictionaryTerms(
             word = fallbackWord,
             sourceOffset = leadingTrimmedCount,
             sourceLength = mapSourceLength(sanitized, fallbackWord),
+            isDictionaryMatch = false,
         )
     }
 
     /** Direct segmentation (Character-by-character longest match for non-Japanese scripts) */
     private suspend fun firstWordDirect(sentence: String, dictionaryIds: List<Long>, script: Script): FirstWordMatch {
-        val leadingTrimmedCount = sentence.indexOfFirst { it !in LEADING_PUNCTUATION }
+        val punctuationChars = PUNCTUATION_CHARS.filterIsInstance<Char>().toSet()
+        val leadingTrimmedCount = sentence.indexOfFirst { it !in punctuationChars }
             .let { if (it == -1) sentence.length else it }
         val sanitized = sentence.drop(leadingTrimmedCount)
         if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
@@ -311,7 +318,7 @@ class SearchDictionaryTerms(
 
             val matches = dictionaryRepository.searchTerms(substring, dictionaryIds)
             if (matches.isNotEmpty()) {
-                return FirstWordMatch(substring, leadingTrimmedCount, len)
+                return FirstWordMatch(substring, leadingTrimmedCount, len, true)
             }
 
             if (script == Script.ENGLISH || script == Script.FRENCH) {
@@ -319,7 +326,7 @@ class SearchDictionaryTerms(
                 if (lowered != substring) {
                     val lowerMatches = dictionaryRepository.searchTerms(lowered, dictionaryIds)
                     if (lowerMatches.isNotEmpty()) {
-                        return FirstWordMatch(substring, leadingTrimmedCount, len)
+                        return FirstWordMatch(substring, leadingTrimmedCount, len, true)
                     }
                 }
             }
@@ -338,13 +345,14 @@ class SearchDictionaryTerms(
         }
 
         val fallbackWord = sanitized.take(fallbackLength)
-        return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength)
+        return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength, false)
     }
 
     private fun isBoundary(c: Char, isFrench: Boolean): Boolean {
+        val punctuationChars = PUNCTUATION_CHARS.filterIsInstance<Char>().toSet()
         if (c.isWhitespace()) return true
         if (isFrench && (c == '\'' || c == '\u2019')) return true
-        if (c in LEADING_PUNCTUATION && c != '\'' && c != '\u2019') return true
+        if (c in punctuationChars && c != '\'' && c != '\u2019') return true
         return false
     }
 
@@ -409,7 +417,7 @@ private fun Char.isLatinLetter(): Boolean =
 private const val MAX_RESULTS = 100
 private const val MAX_WORD_LENGTH = 20
 private const val SCRIPT_DETECT_WINDOW = 30
-private val LEADING_PUNCTUATION = setOf(
+private val PUNCTUATION_CHARS = setOf(
     '「', '」', '『', '』', '（', '）', '(', ')', '【', '】',
     '〔', '〕', '《', '》', '〈', '〉',
     '・', '、', '。', '！', '？', '：', '；',
