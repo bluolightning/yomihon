@@ -23,7 +23,4 @@ enum class ParserLanguage {
 
     /** Force the English pipeline: space-delimited words. */
     ENGLISH,
-
-    /** Force the French pipeline: space and apostrophe-delimited words. */
-    FRENCH,
 }

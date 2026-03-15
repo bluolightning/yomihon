@@ -1108,7 +1108,6 @@
     <string name="parser_language_korean">Korean</string>
     <string name="parser_language_chinese">Chinese</string>
     <string name="parser_language_english">English</string>
-    <string name="parser_language_french">French</string>
 
     <!-- AnkiDroid Settings -->
     <string name="anki_add_success">Added card to AnkiDroid</string>

@@ -253,28 +253,6 @@ class SentenceParserTest {
     }
 
     @Test
-    fun `splits French text with apostrophes when allowed`() = runTest {
-        coEvery { dictionaryRepository.getDictionary(1L) } returns mihon.domain.dictionary.model.Dictionary(
-            title = "Test",
-            revision = "1",
-            version = 1,
-            sourceLanguage = "fr",
-        )
-        coEvery { dictionaryRepository.searchTerms("avion", testDictionaryIds) } returns listOf(
-            mockTerm("avion"),
-        )
-
-        val match1 = searchDictionaryTerms.findFirstWordMatch("l'avion", testDictionaryIds)
-        match1.word shouldBe "l"
-        match1.sourceLength shouldBe 1
-
-        val match2 = searchDictionaryTerms.findFirstWordMatch("'avion", testDictionaryIds)
-        match2.word shouldBe "avion"
-        match2.sourceOffset shouldBe 1
-        match2.sourceLength shouldBe 5
-    }
-
-    @Test
     fun `preserves English apostrophes correctly`() = runTest {
         coEvery { dictionaryRepository.getDictionary(1L) } returns mihon.domain.dictionary.model.Dictionary(
             title = "Test",
