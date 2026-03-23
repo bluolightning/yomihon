@@ -184,20 +184,45 @@ object SettingsAnkiScreen : SearchableSettings {
             "pitchAccent" to MR.strings.anki_field_pitch_accent,
             "frequency" to MR.strings.anki_field_frequency,
             "picture" to MR.strings.anki_field_picture,
-            "frequencyAverageValue" to MR.strings.anki_field_frequency_average_value,
-            "frequencyLowestValue" to MR.strings.anki_field_frequency_lowest_value,
+            "freqAvgValue" to MR.strings.anki_field_frequency_average_value,
+            "freqLowestValue" to MR.strings.anki_field_frequency_lowest_value,
         )
+
+        val dynamicFields = state.dictionaries.map { "freqSingleValue_${it.id}" }
+        val allAppFields = AnkiSettingsScreenModel.APP_FIELDS + dynamicFields
 
         state.modelFields.forEach { ankiField ->
             val currentMapping = state.fieldMappings[ankiField] ?: ""
 
-            val options = (listOf("") + AnkiSettingsScreenModel.APP_FIELDS).associateWith { appField ->
-                if (appField.isEmpty()) {
-                    stringResource(MR.strings.anki_field_empty)
-                } else {
-                    stringResource(appFieldResources[appField] ?: MR.strings.anki_field_empty)
+            val options = (listOf("") + allAppFields).associateWith { appField ->
+                when {
+                    appField.isEmpty() -> stringResource(MR.strings.anki_field_empty)
+                    appField.startsWith("freqSingleValue_") -> {
+                        val dictId = appField.substringAfter("freqSingleValue_").toLongOrNull()
+                        val dict = state.dictionaries.find { it.id == dictId }
+                        if (dict != null) {
+                            stringResource(MR.strings.anki_field_frequency_single_value, dict.title)
+                        } else {
+                            appField
+                        }
+                    }
+                    else -> stringResource(appFieldResources[appField] ?: MR.strings.anki_field_empty)
                 }
             }.toImmutableMap()
+
+            val subtitleLabel = when {
+                currentMapping.isEmpty() -> stringResource(MR.strings.anki_field_empty)
+                currentMapping.startsWith("freqSingleValue_") -> {
+                    val dictId = currentMapping.substringAfter("freqSingleValue_").toLongOrNull()
+                    val dict = state.dictionaries.find { it.id == dictId }
+                    if (dict != null) {
+                        stringResource(MR.strings.anki_field_frequency_single_value, dict.title)
+                    } else {
+                        currentMapping
+                    }
+                }
+                else -> stringResource(appFieldResources[currentMapping] ?: MR.strings.anki_field_empty)
+            }
 
             mappingItems.add(
                 Preference.PreferenceItem.BasicListPreference(
@@ -205,14 +230,9 @@ object SettingsAnkiScreen : SearchableSettings {
                     entries = options,
                     title = ankiField,
                     subtitle = if (currentMapping.isEmpty()) {
-                        stringResource(
-                            MR.strings.anki_field_empty,
-                        )
+                        stringResource(MR.strings.anki_field_empty)
                     } else {
-                        stringResource(
-                            MR.strings.anki_fill_with,
-                            stringResource(appFieldResources[currentMapping] ?: MR.strings.anki_field_empty)
-                        )
+                        stringResource(MR.strings.anki_fill_with, subtitleLabel)
                     },
                     onValueChanged = {
                         screenModel.updateFieldMapping(ankiField, it)

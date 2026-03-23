@@ -234,14 +234,20 @@ class DictionarySearchScreenModel(
 
             val frequencies = FrequencyFormatter.parseFrequencies(termMeta)
             val numericValues = frequencies.mapNotNull { it.numericFrequency }
-            
+
             val minValuesPerDict = frequencies
                 .filter { it.numericFrequency != null }
                 .groupBy { it.dictionaryId }
-                .map { (_, dictFrequencies) -> dictFrequencies.minOf { it.numericFrequency!! } }
-            
-            val avgFreq = if (minValuesPerDict.isNotEmpty()) minValuesPerDict.average().toInt().toString() else ""
+                .mapValues { (_, dictFrequencies) -> dictFrequencies.minOf { it.numericFrequency!! } }
+
+            val avgFreq = minValuesPerDict.values
+                .takeIf { it.isNotEmpty() }
+                ?.average()
+                ?.toInt()
+                ?.toString()
+                ?: ""
             val minFreq = numericValues.minOrNull()?.toString() ?: ""
+            val singleFreqValues = minValuesPerDict.mapValues { it.value.toString() }
 
             val card = term.toDictionaryTermCard(
                 dictionaryName = dictionaryName,
@@ -250,8 +256,9 @@ class DictionarySearchScreenModel(
                 pitchAccent = pitchAccentSvg,
                 frequency = frequencyText,
                 pictureUrl = pictureUrl,
-                frequencyAverageValue = avgFreq,
-                frequencyLowestValue = minFreq,
+                freqAvgValue = avgFreq,
+                freqLowestValue = minFreq,
+                singleFreqValues = singleFreqValues,
             )
 
             when (val result = addDictionaryCard(card)) {
