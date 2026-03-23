@@ -850,7 +850,8 @@ class ReaderViewModel @JvmOverloads constructor(
                 val text = ocrProcessor.getText(bitmap)
                 withUIContext {
                     if (text.isNotBlank()) {
-                        mutableState.update { it.copy(dialog = Dialog.OcrResult(text), isProcessingOcr = false) }
+                        showOcrResult(text)
+                        mutableState.update { it.copy(isProcessingOcr = false) }
                     } else {
                         mutableState.update { it.copy(isProcessingOcr = false) }
                         eventChannel.send(Event.OcrNoTextFound)
@@ -887,6 +888,12 @@ class ReaderViewModel @JvmOverloads constructor(
                     bitmap.recycle()
                 }
             }
+        }
+    }
+
+    fun showOcrResult(text: String) {
+        mutableState.update {
+            it.copy(dialog = Dialog.OcrResult(text))
         }
     }
 

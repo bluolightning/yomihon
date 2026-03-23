@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileDownloadOff
@@ -53,6 +54,7 @@ fun MangaChapterListItem(
     scanlator: String?,
     read: Boolean,
     bookmark: Boolean,
+    hasScanResults: Boolean,
     selected: Boolean,
     downloadIndicatorEnabled: Boolean,
     downloadStateProvider: () -> Download.State,
@@ -169,6 +171,15 @@ fun MangaChapterListItem(
                         }
                     }
                 }
+            }
+
+            if (hasScanResults) {
+                Icon(
+                    imageVector = Icons.Outlined.DocumentScanner,
+                    contentDescription = stringResource(MR.strings.ocr_preprocess_title),
+                    modifier = Modifier.padding(start = 4.dp),
+                    tint = MaterialTheme.colorScheme.secondary,
+                )
             }
 
             ChapterDownloadIndicator(
