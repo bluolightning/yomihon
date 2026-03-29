@@ -1,42 +1,27 @@
 package eu.kanade.tachiyomi.data.ocr
 
-import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import com.hippo.unifile.UniFile
-import java.io.ByteArrayInputStream
-import java.io.InputStream
 import eu.kanade.domain.chapter.model.toSChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
-import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
-import eu.kanade.tachiyomi.ui.reader.loader.DirectoryPageLoader
-import eu.kanade.tachiyomi.ui.reader.loader.DownloadPageLoader
-import eu.kanade.tachiyomi.ui.reader.loader.EpubPageLoader
-import eu.kanade.tachiyomi.ui.reader.loader.PageLoader
-import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
-import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
-import mihon.core.archive.archiveReader
-import mihon.core.archive.epubReader
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import tachiyomi.core.common.util.lang.withIOContext
-import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.source.local.LocalSource
-import tachiyomi.source.local.io.Format
+import kotlin.time.Duration.Companion.seconds
 
 internal class OcrPageSourceResolver(
-    private val context: Context,
     private val sourceManager: SourceManager,
     private val downloadManager: DownloadManager,
-    private val downloadProvider: DownloadProvider,
+    private val pageLoaderGateway: OcrPageSourceGateway,
 ) {
     suspend fun resolve(
         manga: Manga,
@@ -61,45 +46,37 @@ internal class OcrPageSourceResolver(
         chapter: Chapter,
     ): Boolean {
         val queuedDownload = downloadManager.getQueuedDownloadOrNull(chapter.id)
-        if (
-            queuedDownload == null &&
-            downloadManager.isChapterDownloaded(
-                chapter.name,
-                chapter.scanlator,
-                manga.title,
-                manga.source,
-                skipCache = true,
-            )
-        ) {
-            return true
+        if (queuedDownload == null) {
+            return isChapterDownloaded(manga, chapter)
         }
 
-        queuedDownload ?: return false
-        return queuedDownload.statusFlow
-            .map { status ->
-                val queueEntry = downloadManager.getQueuedDownloadOrNull(chapter.id)
-                when {
-                    queueEntry == null &&
-                        downloadManager.isChapterDownloaded(
-                            chapter.name,
-                            chapter.scanlator,
-                            manga.title,
-                            manga.source,
-                            skipCache = true,
-                        ) -> true
-                    downloadManager.isChapterDownloaded(
-                        chapter.name,
-                        chapter.scanlator,
-                        manga.title,
-                        manga.source,
-                        skipCache = true,
-                    ) && status == Download.State.DOWNLOADED && queueEntry == null -> true
-                    status == Download.State.ERROR || status == Download.State.NOT_DOWNLOADED -> false
-                    else -> null
+        return withTimeoutOrNull(DOWNLOAD_WAIT_TIMEOUT.inWholeMilliseconds) {
+            queuedDownload.statusFlow
+                .map { status ->
+                    val isStillQueued = downloadManager.getQueuedDownloadOrNull(chapter.id) != null
+                    val downloaded = isChapterDownloaded(manga, chapter)
+                    when {
+                        downloaded && !isStillQueued -> true
+                        status == Download.State.ERROR || status == Download.State.NOT_DOWNLOADED -> false
+                        else -> null
+                    }
                 }
-            }
-            .filterNotNull()
-            .first()
+                .filterNotNull()
+                .first()
+        } ?: false
+    }
+
+    private fun isChapterDownloaded(
+        manga: Manga,
+        chapter: Chapter,
+    ): Boolean {
+        return downloadManager.isChapterDownloaded(
+            chapter.name,
+            chapter.scanlator,
+            manga.title,
+            manga.source,
+            skipCache = true,
+        )
     }
 
     private suspend fun resolveDownloadedPages(
@@ -107,31 +84,14 @@ internal class OcrPageSourceResolver(
         chapter: Chapter,
         source: Source,
     ): ResolvedOcrPages {
-        val chapterPath = downloadProvider.findChapterDir(chapter.name, chapter.scanlator, manga.title, source)
-        if (chapterPath?.isFile == true) {
-            return resolveArchivePages(chapterPath)
-        }
-
-        val loader = DownloadPageLoader(
-            chapter = ReaderChapter(chapter),
-            manga = manga,
-            source = source,
-            downloadManager = downloadManager,
-            downloadProvider = downloadProvider,
-        )
-        return loader.toResolvedPages()
+        return pageLoaderGateway.resolveDownloadedPages(manga, chapter, source)
     }
 
     private suspend fun resolveLocalPages(
         source: LocalSource,
         chapter: Chapter,
     ): ResolvedOcrPages {
-        val loader = when (val format = source.getFormat(chapter.toSChapter())) {
-            is Format.Directory -> DirectoryPageLoader(format.file)
-            is Format.Archive -> return resolveArchivePages(format.file)
-            is Format.Epub -> EpubPageLoader(format.file.epubReader(context))
-        }
-        return loader.toResolvedPages()
+        return pageLoaderGateway.resolveLocalPages(source, chapter)
     }
 
     private suspend fun resolveRemotePages(
@@ -159,105 +119,9 @@ internal class OcrPageSourceResolver(
         return ResolvedOcrPages(pages)
     }
 
-    private suspend fun resolveArchivePages(
-        file: UniFile,
-    ): ResolvedOcrPages {
-        val reader = file.archiveReader(context)
-        val entryNames = withIOContext {
-            buildList {
-                reader.useEntriesAndStreams { entry, stream ->
-                    if (entry.isFile && isArchiveImageEntry(entry.name, stream)) {
-                        add(entry.name)
-                    }
-                }
-            }
-        }
-            .sortedWith { entry1, entry2 ->
-                entry1.compareToCaseInsensitiveNaturalOrder(entry2)
-            }
-
-        val pages = entryNames.mapIndexed { index, entryName ->
-            OcrPageInput(
-                pageIndex = index,
-                openBitmap = {
-                    withIOContext {
-                        reader.getInputStream(entryName)?.use(::decodeArchiveBitmap)
-                    }
-                },
-            )
-        }
-
-        return ResolvedOcrPages(
-            pages = pages,
-            closeBlock = reader::close,
-        )
-    }
-
-    private suspend fun PageLoader.toResolvedPages(): ResolvedOcrPages {
-        val pages = getPages().map { page ->
-            OcrPageInput(
-                pageIndex = page.index,
-                openBitmap = {
-                    withIOContext {
-                        page.stream?.invoke()?.use(::decodeBitmap)
-                    }
-                },
-            )
-        }
-        return ResolvedOcrPages(
-            pages = pages,
-            closeBlock = ::recycle,
-        )
-    }
-
-    private fun isArchiveImageEntry(
-        name: String,
-        stream: InputStream,
-    ): Boolean {
-        if (hasKnownImageExtension(name)) {
-            return true
-        }
-
-        val header = ByteArray(32)
-        val length = stream.read(header)
-        if (length <= 0) {
-            return false
-        }
-
-        return ImageUtil.findImageType(ByteArrayInputStream(header, 0, length)) != null
-    }
-
-    private fun hasKnownImageExtension(name: String): Boolean {
-        val extension = name.substringAfterLast('.', "").lowercase()
-        return extension == "jpeg" || ImageUtil.ImageType.entries.any { it.extension == extension }
-    }
-
-    private fun decodeBitmap(stream: InputStream): Bitmap? {
-        return BitmapFactory.decodeStream(
-            stream,
-            null,
-            BitmapFactory.Options().apply {
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            },
-        )
-    }
-
-    private fun decodeArchiveBitmap(stream: InputStream): Bitmap? {
-        val bytes = stream.readBytes()
-        if (bytes.isEmpty()) {
-            return null
-        }
-
-        return BitmapFactory.decodeByteArray(
-            bytes,
-            0,
-            bytes.size,
-            BitmapFactory.Options().apply {
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            },
-        )
-    }
 }
+
+private val DOWNLOAD_WAIT_TIMEOUT = 15.seconds
 
 internal data class OcrPageInput(
     val pageIndex: Int,
