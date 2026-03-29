@@ -21,7 +21,7 @@ import kotlin.time.Duration.Companion.seconds
 internal class OcrPageSourceResolver(
     private val sourceManager: SourceManager,
     private val downloadManager: DownloadManager,
-    private val pageLoaderGateway: OcrPageSourceGateway,
+    private val pageSourceGateway: OcrPageSourceGateway,
 ) {
     suspend fun resolve(
         manga: Manga,
@@ -84,14 +84,14 @@ internal class OcrPageSourceResolver(
         chapter: Chapter,
         source: Source,
     ): ResolvedOcrPages {
-        return pageLoaderGateway.resolveDownloadedPages(manga, chapter, source)
+        return pageSourceGateway.resolveDownloadedPages(manga, chapter, source)
     }
 
     private suspend fun resolveLocalPages(
         source: LocalSource,
         chapter: Chapter,
     ): ResolvedOcrPages {
-        return pageLoaderGateway.resolveLocalPages(source, chapter)
+        return pageSourceGateway.resolveLocalPages(source, chapter)
     }
 
     private suspend fun resolveRemotePages(
