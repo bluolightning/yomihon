@@ -1,5 +1,18 @@
 package mihon.domain.ocr.model
 
+data class OcrImage(
+    val width: Int,
+    val height: Int,
+    val pixels: IntArray,
+) {
+    init {
+        require(width > 0 && height > 0) { "OCR image dimensions must be positive" }
+        require(pixels.size == width * height) {
+            "OCR image pixels size must match width * height"
+        }
+    }
+}
+
 data class OcrBoundingBox(
     val left: Float,
     val top: Float,

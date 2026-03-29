@@ -1,9 +1,8 @@
 package mihon.domain.ocr
 
-import android.graphics.Bitmap
-import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import mihon.domain.ocr.model.OcrBoundingBox
+import mihon.domain.ocr.model.OcrImage
 import mihon.domain.ocr.model.OcrModel
 import mihon.domain.ocr.model.OcrPageResult
 import mihon.domain.ocr.model.OcrRegion
@@ -19,8 +18,8 @@ class OcrRepositoryContractTest {
         runTest {
             val repository = InMemoryOcrRepository()
 
-            val first = repository.scanPage(chapterId = 5L, pageIndex = 2, image = bitmap(120, 240))
-            val second = repository.scanPage(chapterId = 5L, pageIndex = 2, image = bitmap(200, 300))
+            val first = repository.scanPage(chapterId = 5L, pageIndex = 2, image = image(120, 240))
+            val second = repository.scanPage(chapterId = 5L, pageIndex = 2, image = image(200, 300))
 
             assertEquals("page-5-2-2", second.text)
             assertEquals(second, repository.getCachedPage(chapterId = 5L, pageIndex = 2))
@@ -35,8 +34,8 @@ class OcrRepositoryContractTest {
         runTest {
             val repository = InMemoryOcrRepository()
 
-            repository.scanPage(chapterId = 5L, pageIndex = 0, image = bitmap(100, 100))
-            repository.scanPage(chapterId = 6L, pageIndex = 0, image = bitmap(100, 100))
+            repository.scanPage(chapterId = 5L, pageIndex = 0, image = image(100, 100))
+            repository.scanPage(chapterId = 6L, pageIndex = 0, image = image(100, 100))
 
             repository.clearCachedChapter(5L)
 
@@ -51,8 +50,8 @@ class OcrRepositoryContractTest {
         runTest {
             val repository = InMemoryOcrRepository()
 
-            repository.scanPage(chapterId = 5L, pageIndex = 0, image = bitmap(100, 100))
-            repository.scanPage(chapterId = 6L, pageIndex = 1, image = bitmap(100, 100))
+            repository.scanPage(chapterId = 5L, pageIndex = 0, image = image(100, 100))
+            repository.scanPage(chapterId = 6L, pageIndex = 1, image = image(100, 100))
 
             assertEquals(2, repository.cachedEntriesCount())
             assertEquals(256L, repository.getCacheSizeBytes())
@@ -71,8 +70,8 @@ class OcrRepositoryContractTest {
         runTest {
             val repository = InMemoryOcrRepository()
 
-            repository.scanPage(chapterId = 5L, pageIndex = 0, image = bitmap(100, 100))
-            repository.scanPage(chapterId = 6L, pageIndex = 1, image = bitmap(100, 100))
+            repository.scanPage(chapterId = 5L, pageIndex = 0, image = image(100, 100))
+            repository.scanPage(chapterId = 6L, pageIndex = 1, image = image(100, 100))
 
             assertEquals(
                 setOf(5L, 6L),
@@ -84,12 +83,12 @@ class OcrRepositoryContractTest {
     private class InMemoryOcrRepository : OcrRepository {
         private val pages = mutableMapOf<Key, OcrPageResult>()
 
-        override suspend fun recognizeText(image: Bitmap): String = "recognized-${image.width}x${image.height}"
+        override suspend fun recognizeText(image: OcrImage): String = "recognized-${image.width}x${image.height}"
 
         override suspend fun scanPage(
             chapterId: Long,
             pageIndex: Int,
-            image: Bitmap,
+            image: OcrImage,
         ): OcrPageResult {
             val result = OcrPageResult(
                 chapterId = chapterId,
@@ -151,10 +150,11 @@ class OcrRepositoryContractTest {
         val ocrModel: OcrModel,
     )
 
-    private fun bitmap(width: Int, height: Int): Bitmap {
-        return mockk<Bitmap>(relaxed = true).also { bitmap ->
-            io.mockk.every { bitmap.width } returns width
-            io.mockk.every { bitmap.height } returns height
-        }
+    private fun image(width: Int, height: Int): OcrImage {
+        return OcrImage(
+            width = width,
+            height = height,
+            pixels = IntArray(width * height),
+        )
     }
 }

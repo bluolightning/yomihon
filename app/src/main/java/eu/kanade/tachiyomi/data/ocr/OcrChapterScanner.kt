@@ -6,6 +6,7 @@ import logcat.LogPriority
 import mihon.domain.ocr.interactor.ClearCachedChapterOcr
 import mihon.domain.ocr.interactor.RunOcrScanSession
 import mihon.domain.ocr.interactor.ScanPageOcr
+import mihon.domain.ocr.model.OcrImage
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.interactor.GetChapter
 import tachiyomi.domain.manga.interactor.GetManga
@@ -13,9 +14,9 @@ import tachiyomi.domain.manga.interactor.GetManga
 internal class OcrChapterScanner(
     private val getChapter: GetChapter,
     private val getManga: GetManga,
-    private val clearCachedChapterOcr: ClearCachedChapterOcr,
+    private val clearOcrCachedChapter: ClearCachedChapterOcr,
     private val runOcrScanSession: RunOcrScanSession,
-    private val scanPageOcr: ScanPageOcr,
+    private val scanOcrPage: ScanPageOcr,
     private val pageSourceResolver: OcrPageSourceResolver,
 ) {
     suspend fun scanChapter(
@@ -55,7 +56,7 @@ internal class OcrChapterScanner(
 
         return try {
             runOcrScanSession.await {
-                clearCachedChapterOcr.await(chapterId)
+                clearOcrCachedChapter.await(chapterId)
                 onCacheStateChanged(chapterId, false)
 
                 val resolvedPages = pageSourceResolver.resolve(manga, chapter)
@@ -90,7 +91,7 @@ internal class OcrChapterScanner(
                                 val decodedBitmap = page.openBitmap() ?: error("Unable to decode page ${page.pageIndex + 1}")
                                 val bitmap = decodedBitmap.toArgb8888Bitmap()
                                 try {
-                                    scanPageOcr.await(chapterId, page.pageIndex, bitmap)
+                                    scanOcrPage.await(chapterId, page.pageIndex, bitmap.toOcrImage())
                                 } finally {
                                     if (bitmap !== decodedBitmap && !decodedBitmap.isRecycled) {
                                         decodedBitmap.recycle()
@@ -116,7 +117,7 @@ internal class OcrChapterScanner(
                                 throw e
                             }
                             logcat(LogPriority.ERROR, e) { "Failed to scan OCR for chapterId=$chapterId" }
-                            clearCachedChapterOcr.await(chapterId)
+                            clearOcrCachedChapter.await(chapterId)
                             onCacheStateChanged(chapterId, false)
                             onError(
                                 OcrChapterScanError(
@@ -137,7 +138,7 @@ internal class OcrChapterScanner(
                 throw e
             }
             logcat(LogPriority.ERROR, e) { "Failed to start OCR scan for chapterId=$chapterId" }
-            clearCachedChapterOcr.await(chapterId)
+            clearOcrCachedChapter.await(chapterId)
             onCacheStateChanged(chapterId, false)
             onError(
                 OcrChapterScanError(
@@ -175,4 +176,14 @@ private fun Bitmap.toArgb8888Bitmap(): Bitmap {
         return this
     }
     return copy(Bitmap.Config.ARGB_8888, false) ?: this
+}
+
+private fun Bitmap.toOcrImage(): OcrImage {
+    val pixels = IntArray(width * height)
+    getPixels(pixels, 0, width, 0, 0, width, height)
+    return OcrImage(
+        width = width,
+        height = height,
+        pixels = pixels,
+    )
 }

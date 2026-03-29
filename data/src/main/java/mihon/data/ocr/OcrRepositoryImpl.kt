@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import mihon.domain.ocr.exception.OcrException
 import mihon.domain.ocr.model.OcrBoundingBox
+import mihon.domain.ocr.model.OcrImage
 import mihon.domain.ocr.model.OcrModel
 import mihon.domain.ocr.model.OcrPageResult
 import mihon.domain.ocr.model.OcrRegion
@@ -145,7 +146,7 @@ class OcrRepositoryImpl(
 
     private suspend fun getDetEngine(): DetOcrEngine {
         return engineMutex.withLock {
-            detEngine ?: TemplateDetOcrEngine().also {
+            detEngine ?: UnavailableDetOcrEngine().also {
                 detEngine = it
             }
         }
@@ -188,40 +189,44 @@ class OcrRepositoryImpl(
         }
     }
 
-    override suspend fun recognizeText(image: Bitmap): String {
+    override suspend fun recognizeText(image: OcrImage): String {
         return submitTask(PrioritizedTaskQueue.Priority.HIGH) {
-            val primary = selectedEngineType()
-            recognizeWithFallback(primary, image)
+            image.useBitmap { bitmap ->
+                val primary = selectedEngineType()
+                recognizeWithFallback(primary, bitmap)
+            }
         }
     }
 
     override suspend fun scanPage(
         chapterId: Long,
         pageIndex: Int,
-        image: Bitmap,
+        image: OcrImage,
     ): OcrPageResult {
         return submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
-            val result = when (val selectedModel = ocrModelPref.get()) {
-                OcrModel.GLENS -> scanWithGlens(
-                    chapterId = chapterId,
-                    pageIndex = pageIndex,
-                    image = image,
-                    modelKey = selectedModel,
-                )
-                OcrModel.LEGACY -> scanLocalOrFallback(
-                    chapterId = chapterId,
-                    pageIndex = pageIndex,
-                    image = image,
-                    modelKey = selectedModel,
-                    type = EngineType.LEGACY,
-                )
-                OcrModel.FAST -> scanLocalOrFallback(
-                    chapterId = chapterId,
-                    pageIndex = pageIndex,
-                    image = image,
-                    modelKey = selectedModel,
-                    type = EngineType.FAST,
-                )
+            val result = image.useBitmap { bitmap ->
+                when (val selectedModel = ocrModelPref.get()) {
+                    OcrModel.GLENS -> scanWithGlens(
+                        chapterId = chapterId,
+                        pageIndex = pageIndex,
+                        image = bitmap,
+                        modelKey = selectedModel,
+                    )
+                    OcrModel.LEGACY -> scanLocalOrFallback(
+                        chapterId = chapterId,
+                        pageIndex = pageIndex,
+                        image = bitmap,
+                        modelKey = selectedModel,
+                        type = EngineType.LEGACY,
+                    )
+                    OcrModel.FAST -> scanLocalOrFallback(
+                        chapterId = chapterId,
+                        pageIndex = pageIndex,
+                        image = bitmap,
+                        modelKey = selectedModel,
+                        type = EngineType.FAST,
+                    )
+                }
             }
 
             cacheStore.upsert(result)
@@ -422,6 +427,19 @@ class OcrRepositoryImpl(
             logcat(LogPriority.INFO) { "OcrRepositoryImpl cleaned up successfully" }
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Error cleaning up OcrRepositoryImpl" }
+        }
+    }
+
+    private suspend fun <T> OcrImage.useBitmap(
+        block: suspend (Bitmap) -> T,
+    ): T {
+        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        return try {
+            block(bitmap)
+        } finally {
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
         }
     }
 

@@ -10,7 +10,7 @@ internal interface DetOcrEngine {
     fun close()
 }
 
-internal class TemplateDetOcrEngine : DetOcrEngine {
+internal class UnavailableDetOcrEngine : DetOcrEngine {
     override suspend fun detectTextRegions(image: Bitmap): List<OcrBoundingBox> {
         throw OcrException.DetectionUnavailable()
     }

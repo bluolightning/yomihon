@@ -1,16 +1,16 @@
 package mihon.domain.ocr.repository
 
-import android.graphics.Bitmap
+import mihon.domain.ocr.model.OcrImage
 import mihon.domain.ocr.model.OcrModel
 import mihon.domain.ocr.model.OcrPageResult
 
 interface OcrRepository {
-    suspend fun recognizeText(image: Bitmap): String
+    suspend fun recognizeText(image: OcrImage): String
 
     suspend fun scanPage(
         chapterId: Long,
         pageIndex: Int,
-        image: Bitmap,
+        image: OcrImage,
     ): OcrPageResult = OcrPageResult(
         chapterId = chapterId,
         pageIndex = pageIndex,
