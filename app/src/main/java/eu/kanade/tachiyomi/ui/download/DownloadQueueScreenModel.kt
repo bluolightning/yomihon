@@ -6,6 +6,8 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.ocr.OcrQueueAction
+import eu.kanade.tachiyomi.data.ocr.OcrQueueActions
 import eu.kanade.tachiyomi.data.ocr.OcrScanManager
 import eu.kanade.tachiyomi.data.ocr.OcrScanQueueEntry
 import eu.kanade.tachiyomi.data.ocr.OcrScanQueueState
@@ -38,6 +40,8 @@ class DownloadQueueScreenModel(
     private val getManga: GetManga = Injekt.get(),
     private val sourceManager: SourceManager = Injekt.get(),
 ) : ScreenModel {
+
+    private val ocrQueueActions: OcrQueueActions = Injekt.get()
 
     private val _state = MutableStateFlow(emptyList<DownloadHeaderItem>())
     val state = _state.asStateFlow()
@@ -172,7 +176,7 @@ class DownloadQueueScreenModel(
                 chapterNumber = chapterMetadata.chapterNumber,
                 processedPages = progress?.processedPages ?: 0,
                 totalPages = progress?.totalPages,
-                queueState = entry.state.toUiState(),
+                state = entry.state.toUiState(),
                 lastError = entry.lastError,
             )
         }
@@ -271,61 +275,10 @@ class DownloadQueueScreenModel(
 
     internal fun handleOcrAction(
         chapterId: Long,
-        action: OcrQueueMenuAction,
+        action: OcrQueueAction,
     ) {
-        val currentItems = _ocrQueueState.value.items
-        if (currentItems.isEmpty()) return
-
-        val selectedItem = currentItems.firstOrNull { it.chapterId == chapterId } ?: return
-        val selectedSeriesIds = if (selectedItem.mangaId != null) {
-            currentItems
-                .filter { it.mangaId == selectedItem.mangaId }
-                .mapTo(mutableSetOf(), OcrQueueChapterItem::chapterId)
-        } else {
-            mutableSetOf(selectedItem.chapterId)
-        }
-        val selectedSeries = currentItems.filter { it.chapterId in selectedSeriesIds }
-        val otherSeries = currentItems.filterNot { it.chapterId in selectedSeriesIds }
-
-        when (action) {
-            OcrQueueMenuAction.MoveToTop -> {
-                val reorderedItems = currentItems.toMutableList().apply {
-                    removeAll { it.chapterId == chapterId }
-                    add(0, selectedItem)
-                }
-                reorderOcrQueue(reorderedItems.map(OcrQueueChapterItem::chapterId))
-            }
-            OcrQueueMenuAction.MoveSeriesToTop -> {
-                reorderOcrQueue((selectedSeries + otherSeries).map(OcrQueueChapterItem::chapterId))
-            }
-            OcrQueueMenuAction.MoveToBottom -> {
-                val reorderedItems = currentItems.toMutableList().apply {
-                    removeAll { it.chapterId == chapterId }
-                    add(selectedItem)
-                }
-                reorderOcrQueue(reorderedItems.map(OcrQueueChapterItem::chapterId))
-            }
-            OcrQueueMenuAction.MoveSeriesToBottom -> {
-                reorderOcrQueue((otherSeries + selectedSeries).map(OcrQueueChapterItem::chapterId))
-            }
-            OcrQueueMenuAction.Cancel -> {
-                cancelOcrQueue(listOf(chapterId))
-            }
-            OcrQueueMenuAction.CancelSeries -> {
-                cancelOcrQueue(selectedSeries.map(OcrQueueChapterItem::chapterId))
-            }
-        }
-    }
-
-    private fun reorderOcrQueue(chapterIds: List<Long>) {
         screenModelScope.launch {
-            ocrScanManager.reorderQueue(chapterIds)
-        }
-    }
-
-    private fun cancelOcrQueue(chapterIds: Collection<Long>) {
-        screenModelScope.launch {
-            ocrScanManager.cancelQueuedChapters(chapterIds)
+            ocrQueueActions.run(chapterId, action)
         }
     }
 
@@ -434,23 +387,14 @@ internal data class OcrQueueChapterItem(
     val chapterNumber: Double,
     val processedPages: Int,
     val totalPages: Int?,
-    val queueState: OcrQueueStateUi,
+    val state: OcrQueueItemState,
     val lastError: String?,
 )
 
-internal enum class OcrQueueStateUi {
+internal enum class OcrQueueItemState {
     Queued,
     Scanning,
     Error,
-}
-
-internal enum class OcrQueueMenuAction {
-    MoveToTop,
-    MoveSeriesToTop,
-    MoveToBottom,
-    MoveSeriesToBottom,
-    Cancel,
-    CancelSeries,
 }
 
 private data class OcrQueueChapterMetadata(
@@ -461,10 +405,10 @@ private data class OcrQueueChapterMetadata(
     val chapterNumber: Double,
 )
 
-private fun OcrScanQueueEntry.State.toUiState(): OcrQueueStateUi {
+private fun OcrScanQueueEntry.State.toUiState(): OcrQueueItemState {
     return when (this) {
-        OcrScanQueueEntry.State.QUEUED -> OcrQueueStateUi.Queued
-        OcrScanQueueEntry.State.SCANNING -> OcrQueueStateUi.Scanning
-        OcrScanQueueEntry.State.ERROR -> OcrQueueStateUi.Error
+        OcrScanQueueEntry.State.QUEUED -> OcrQueueItemState.Queued
+        OcrScanQueueEntry.State.SCANNING -> OcrQueueItemState.Scanning
+        OcrScanQueueEntry.State.ERROR -> OcrQueueItemState.Error
     }
 }

@@ -60,6 +60,7 @@ import eu.kanade.presentation.components.AppBarActions
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.NestedMenuItem
 import eu.kanade.presentation.util.Screen
+import eu.kanade.tachiyomi.data.ocr.OcrQueueAction
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
 import kotlinx.collections.immutable.toPersistentList
 import tachiyomi.core.common.util.lang.launchUI
@@ -367,7 +368,7 @@ private fun QueueSectionHeader(
 @Composable
 private fun OcrQueueSection(
     state: OcrQueueUiState,
-    onAction: (Long, OcrQueueMenuAction) -> Unit,
+    onAction: (Long, OcrQueueAction) -> Unit,
     constrainHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -405,8 +406,8 @@ private fun OcrQueueSection(
 
                     OcrQueueRow(
                         item = item,
-                        canMoveToTop = item.queueState != OcrQueueStateUi.Scanning && index > 0,
-                        canMoveToBottom = item.queueState != OcrQueueStateUi.Scanning && index < state.items.lastIndex,
+                        canMoveToTop = item.state != OcrQueueItemState.Scanning && index > 0,
+                        canMoveToBottom = item.state != OcrQueueItemState.Scanning && index < state.items.lastIndex,
                         onAction = onAction,
                     )
                 }
@@ -420,12 +421,12 @@ private fun OcrQueueRow(
     item: OcrQueueChapterItem,
     canMoveToTop: Boolean,
     canMoveToBottom: Boolean,
-    onAction: (Long, OcrQueueMenuAction) -> Unit,
+    onAction: (Long, OcrQueueAction) -> Unit,
 ) {
-    val stateLabel = when (item.queueState) {
-        OcrQueueStateUi.Queued -> stringResource(MR.strings.dictionary_migration_stage_queued)
-        OcrQueueStateUi.Error -> item.lastError ?: stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
-        OcrQueueStateUi.Scanning -> null
+    val stateLabel = when (item.state) {
+        OcrQueueItemState.Queued -> stringResource(MR.strings.dictionary_migration_stage_queued)
+        OcrQueueItemState.Error -> item.lastError ?: stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
+        OcrQueueItemState.Scanning -> null
     }
     var menuExpanded by remember(item.chapterId) { mutableStateOf(false) }
 
@@ -491,7 +492,7 @@ private fun OcrQueueRow(
                             text = { Text(stringResource(MR.strings.action_move_to_top)) },
                             onClick = {
                                 menuExpanded = false
-                                onAction(item.chapterId, OcrQueueMenuAction.MoveToTop)
+                                onAction(item.chapterId, OcrQueueAction.MoveToTop)
                             },
                         )
                     }
@@ -499,7 +500,7 @@ private fun OcrQueueRow(
                         text = { Text(stringResource(MR.strings.action_move_to_top_all_for_series)) },
                         onClick = {
                             menuExpanded = false
-                            onAction(item.chapterId, OcrQueueMenuAction.MoveSeriesToTop)
+                            onAction(item.chapterId, OcrQueueAction.MoveSeriesToTop)
                         },
                     )
                     if (canMoveToBottom) {
@@ -507,7 +508,7 @@ private fun OcrQueueRow(
                             text = { Text(stringResource(MR.strings.action_move_to_bottom)) },
                             onClick = {
                                 menuExpanded = false
-                                onAction(item.chapterId, OcrQueueMenuAction.MoveToBottom)
+                                onAction(item.chapterId, OcrQueueAction.MoveToBottom)
                             },
                         )
                     }
@@ -515,28 +516,28 @@ private fun OcrQueueRow(
                         text = { Text(stringResource(MR.strings.action_move_to_bottom_all_for_series)) },
                         onClick = {
                             menuExpanded = false
-                            onAction(item.chapterId, OcrQueueMenuAction.MoveSeriesToBottom)
+                            onAction(item.chapterId, OcrQueueAction.MoveSeriesToBottom)
                         },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(MR.strings.action_cancel)) },
                         onClick = {
                             menuExpanded = false
-                            onAction(item.chapterId, OcrQueueMenuAction.Cancel)
+                            onAction(item.chapterId, OcrQueueAction.Cancel)
                         },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(MR.strings.cancel_all_for_series)) },
                         onClick = {
                             menuExpanded = false
-                            onAction(item.chapterId, OcrQueueMenuAction.CancelSeries)
+                            onAction(item.chapterId, OcrQueueAction.CancelSeries)
                         },
                     )
                 }
             }
         }
 
-        if (item.queueState == OcrQueueStateUi.Scanning && item.totalPages != null && item.totalPages > 0) {
+        if (item.state == OcrQueueItemState.Scanning && item.totalPages != null && item.totalPages > 0) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -558,7 +559,7 @@ private fun OcrQueueRow(
             Text(
                 text = stateLabel.orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (item.queueState == OcrQueueStateUi.Error) {
+                color = if (item.state == OcrQueueItemState.Error) {
                     MaterialTheme.colorScheme.error
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
