@@ -122,9 +122,17 @@ class OcrScanManager internal constructor(
                 .distinct()
 
             val requestedIdSet = requestedIds.toSet()
-            val reorderedEntries = requestedIds.mapNotNull { chapterId ->
-                reorderableEntries.firstOrNull { entry -> entry.chapterId == chapterId }
-            } + reorderableEntries.filterNot { entry -> entry.chapterId in requestedIdSet }
+            val reorderableByChapterId = reorderableEntries.associateBy(OcrScanQueueEntry::chapterId)
+            val reorderedEntries = buildList {
+                requestedIds.forEach { chapterId ->
+                    reorderableByChapterId[chapterId]?.let(::add)
+                }
+                reorderableEntries.forEach { entry ->
+                    if (entry.chapterId !in requestedIdSet) {
+                        add(entry)
+                    }
+                }
+            }
 
             state.copy(
                 entries = listOfNotNull(activeEntry) + reorderedEntries,
@@ -156,11 +164,12 @@ class OcrScanManager internal constructor(
         if (cancelledActive) {
             notifier.dismissProgress()
             workerController.stop()
+            if (shouldRestart) {
+                workerController.restart()
+            }
         } else if (queueState.value.entries.isEmpty()) {
             notifier.dismissProgress()
-        }
-
-        if (shouldRestart) {
+        } else if (shouldRestart) {
             startWorkerIfNeeded()
         }
     }
@@ -385,9 +394,7 @@ class OcrScanManager internal constructor(
     }
 
     private fun startWorkerIfNeeded() {
-        if (!workerController.isRunning()) {
-            workerController.start()
-        }
+        workerController.start()
     }
 }
 

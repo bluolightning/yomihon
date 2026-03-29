@@ -12,7 +12,6 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import eu.kanade.tachiyomi.data.notification.Notifications
-import eu.kanade.tachiyomi.util.system.cancelNotification
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import kotlinx.coroutines.CancellationException
@@ -59,32 +58,29 @@ internal class OcrScanJob(
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e) { "OCR scan worker failed unexpectedly; scheduling retry" }
             Result.retry()
-        } finally {
-            applicationContext.cancelNotification(Notifications.ID_OCR_PROGRESS)
         }
     }
 
     companion object {
         private const val TAG = "OcrScan"
 
+        private fun createRequest() = OneTimeWorkRequestBuilder<OcrScanJob>()
+            .addTag(TAG)
+            .build()
+
         fun start(context: Context) {
-            val request = OneTimeWorkRequestBuilder<OcrScanJob>()
-                .addTag(TAG)
-                .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(TAG, ExistingWorkPolicy.KEEP, createRequest())
+        }
+
+        fun restart(context: Context) {
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE, createRequest())
         }
 
         fun stop(context: Context) {
             WorkManager.getInstance(context)
                 .cancelUniqueWork(TAG)
-        }
-
-        fun isRunning(context: Context): Boolean {
-            return WorkManager.getInstance(context)
-                .getWorkInfosForUniqueWork(TAG)
-                .get()
-                .let { list -> list.count { it.state == WorkInfo.State.RUNNING } == 1 }
         }
 
         fun isRunningFlow(context: Context): Flow<Boolean> {

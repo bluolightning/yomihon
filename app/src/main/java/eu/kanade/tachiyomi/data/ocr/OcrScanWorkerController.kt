@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.Flow
 
 internal interface OcrScanWorkerController {
     fun start()
+    fun restart()
     fun stop()
-    fun isRunning(): Boolean
     fun isRunningFlow(): Flow<Boolean>
 }
 
@@ -17,12 +17,12 @@ internal class WorkManagerOcrScanWorkerController(
         OcrScanJob.start(context)
     }
 
-    override fun stop() {
-        OcrScanJob.stop(context)
+    override fun restart() {
+        OcrScanJob.restart(context)
     }
 
-    override fun isRunning(): Boolean {
-        return OcrScanJob.isRunning(context)
+    override fun stop() {
+        OcrScanJob.stop(context)
     }
 
     override fun isRunningFlow(): Flow<Boolean> {

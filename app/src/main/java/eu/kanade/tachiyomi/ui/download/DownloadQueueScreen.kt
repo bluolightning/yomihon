@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.filled.PlayArrow
@@ -53,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
@@ -62,7 +61,6 @@ import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.NestedMenuItem
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
-import eu.kanade.tachiyomi.data.ocr.OcrScanQueueEntry
 import kotlinx.collections.immutable.toPersistentList
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.i18n.MR
@@ -373,12 +371,11 @@ private fun OcrQueueSection(
     constrainHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val contentModifier = if (constrainHeight) {
+    val listContainerModifier = if (constrainHeight) {
         Modifier
             .heightIn(max = 280.dp)
-            .verticalScroll(rememberScrollState())
     } else {
-        Modifier.verticalScroll(rememberScrollState())
+        Modifier
     }
 
     Column(modifier = modifier) {
@@ -388,30 +385,30 @@ private fun OcrQueueSection(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Column(
-            modifier = contentModifier
+        Surface(
+            modifier = listContainerModifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            shape = MaterialTheme.shapes.medium,
+            tonalElevation = 1.dp,
         ) {
-            Surface(
+            LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 1.dp,
             ) {
-                Column {
-                    state.items.forEachIndexed { index, item ->
-                        if (index != 0) {
-                            HorizontalDivider()
-                        }
-
-                        OcrQueueRow(
-                            item = item,
-                            canMoveToTop = item.queueState != OcrScanQueueEntry.State.SCANNING && index > 0,
-                            canMoveToBottom = item.queueState != OcrScanQueueEntry.State.SCANNING && index < state.items.lastIndex,
-                            onAction = onAction,
-                        )
+                itemsIndexed(
+                    items = state.items,
+                    key = { _, item -> item.chapterId },
+                ) { index, item ->
+                    if (index != 0) {
+                        HorizontalDivider()
                     }
+
+                    OcrQueueRow(
+                        item = item,
+                        canMoveToTop = item.queueState != OcrQueueStateUi.Scanning && index > 0,
+                        canMoveToBottom = item.queueState != OcrQueueStateUi.Scanning && index < state.items.lastIndex,
+                        onAction = onAction,
+                    )
                 }
             }
         }
@@ -426,9 +423,9 @@ private fun OcrQueueRow(
     onAction: (Long, OcrQueueMenuAction) -> Unit,
 ) {
     val stateLabel = when (item.queueState) {
-        OcrScanQueueEntry.State.QUEUED -> stringResource(MR.strings.dictionary_migration_stage_queued)
-        OcrScanQueueEntry.State.ERROR -> item.lastError ?: stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
-        OcrScanQueueEntry.State.SCANNING -> null
+        OcrQueueStateUi.Queued -> stringResource(MR.strings.dictionary_migration_stage_queued)
+        OcrQueueStateUi.Error -> item.lastError ?: stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
+        OcrQueueStateUi.Scanning -> null
     }
     var menuExpanded by remember(item.chapterId) { mutableStateOf(false) }
 
@@ -539,7 +536,7 @@ private fun OcrQueueRow(
             }
         }
 
-        if (item.queueState == OcrScanQueueEntry.State.SCANNING && item.totalPages != null && item.totalPages > 0) {
+        if (item.queueState == OcrQueueStateUi.Scanning && item.totalPages != null && item.totalPages > 0) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -561,7 +558,7 @@ private fun OcrQueueRow(
             Text(
                 text = stateLabel.orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (item.queueState == OcrScanQueueEntry.State.ERROR) {
+                color = if (item.queueState == OcrQueueStateUi.Error) {
                     MaterialTheme.colorScheme.error
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant

@@ -172,7 +172,7 @@ class DownloadQueueScreenModel(
                 chapterNumber = chapterMetadata.chapterNumber,
                 processedPages = progress?.processedPages ?: 0,
                 totalPages = progress?.totalPages,
-                queueState = entry.state,
+                queueState = entry.state.toUiState(),
                 lastError = entry.lastError,
             )
         }
@@ -195,7 +195,7 @@ class DownloadQueueScreenModel(
                 ?: chapterId.toString()
 
             OcrQueueChapterMetadata(
-                mangaId = chapter?.mangaId ?: -1L,
+                mangaId = chapter?.mangaId,
                 sourceName = sourceName,
                 mangaTitle = mangaTitle,
                 chapterName = chapterName,
@@ -277,8 +277,15 @@ class DownloadQueueScreenModel(
         if (currentItems.isEmpty()) return
 
         val selectedItem = currentItems.firstOrNull { it.chapterId == chapterId } ?: return
-        val selectedSeries = currentItems.filter { it.mangaId == selectedItem.mangaId }
-        val otherSeries = currentItems.filterNot { it.mangaId == selectedItem.mangaId }
+        val selectedSeriesIds = if (selectedItem.mangaId != null) {
+            currentItems
+                .filter { it.mangaId == selectedItem.mangaId }
+                .mapTo(mutableSetOf(), OcrQueueChapterItem::chapterId)
+        } else {
+            mutableSetOf(selectedItem.chapterId)
+        }
+        val selectedSeries = currentItems.filter { it.chapterId in selectedSeriesIds }
+        val otherSeries = currentItems.filterNot { it.chapterId in selectedSeriesIds }
 
         when (action) {
             OcrQueueMenuAction.MoveToTop -> {
@@ -420,16 +427,22 @@ internal data class OcrQueueUiState(
 
 internal data class OcrQueueChapterItem(
     val chapterId: Long,
-    val mangaId: Long,
+    val mangaId: Long?,
     val sourceName: String,
     val mangaTitle: String,
     val chapterName: String,
     val chapterNumber: Double,
     val processedPages: Int,
     val totalPages: Int?,
-    val queueState: OcrScanQueueEntry.State,
+    val queueState: OcrQueueStateUi,
     val lastError: String?,
 )
+
+internal enum class OcrQueueStateUi {
+    Queued,
+    Scanning,
+    Error,
+}
 
 internal enum class OcrQueueMenuAction {
     MoveToTop,
@@ -441,9 +454,17 @@ internal enum class OcrQueueMenuAction {
 }
 
 private data class OcrQueueChapterMetadata(
-    val mangaId: Long,
+    val mangaId: Long?,
     val sourceName: String,
     val mangaTitle: String,
     val chapterName: String,
     val chapterNumber: Double,
 )
+
+private fun OcrScanQueueEntry.State.toUiState(): OcrQueueStateUi {
+    return when (this) {
+        OcrScanQueueEntry.State.QUEUED -> OcrQueueStateUi.Queued
+        OcrScanQueueEntry.State.SCANNING -> OcrQueueStateUi.Scanning
+        OcrScanQueueEntry.State.ERROR -> OcrQueueStateUi.Error
+    }
+}
