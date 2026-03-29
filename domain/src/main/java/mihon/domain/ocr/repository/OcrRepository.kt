@@ -1,7 +1,6 @@
 package mihon.domain.ocr.repository
 
 import mihon.domain.ocr.model.OcrImage
-import mihon.domain.ocr.model.OcrModel
 import mihon.domain.ocr.model.OcrPageResult
 
 interface OcrRepository {
@@ -11,29 +10,22 @@ interface OcrRepository {
         chapterId: Long,
         pageIndex: Int,
         image: OcrImage,
-    ): OcrPageResult = OcrPageResult(
-        chapterId = chapterId,
-        pageIndex = pageIndex,
-        ocrModel = OcrModel.LEGACY,
-        imageWidth = image.width,
-        imageHeight = image.height,
-        regions = emptyList(),
-    )
+    ): OcrPageResult
 
     suspend fun getCachedPage(
         chapterId: Long,
         pageIndex: Int,
-    ): OcrPageResult? = null
+    ): OcrPageResult?
 
-    suspend fun getCachedChapterIds(chapterIds: Collection<Long>): Set<Long> = emptySet()
+    suspend fun getCachedChapterIds(chapterIds: Collection<Long>): Set<Long>
 
-    suspend fun clearCachedChapter(chapterId: Long) = Unit
+    suspend fun clearCachedChapter(chapterId: Long)
 
-    suspend fun clearCache() = Unit
+    suspend fun clearCache()
 
-    suspend fun getCacheSizeBytes(): Long = 0L
+    suspend fun getCacheSizeBytes(): Long
 
-    suspend fun <T> withScanSession(block: suspend () -> T): T = block()
+    suspend fun <T> withScanSession(block: suspend () -> T): T
 
     /**
      * Cleanup and release all OCR resources, which can take up lots of RAM.

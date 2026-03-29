@@ -139,6 +139,10 @@ class OcrRepositoryContractTest {
             return pages.size * 128L
         }
 
+        override suspend fun <T> withScanSession(block: suspend () -> T): T {
+            return block()
+        }
+
         override fun cleanup() = Unit
 
         fun cachedEntriesCount(): Int = pages.size

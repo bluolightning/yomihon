@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
@@ -312,12 +313,13 @@ class OcrScanManager internal constructor(
         chapterId: Long,
         progress: OcrChapterScanProgress,
     ) {
-        val currentState = mutableQueueState.value
-        if (currentState.activeChapterId != chapterId) {
-            return
+        mutableQueueState.update { state ->
+            if (state.activeChapterId != chapterId) {
+                state
+            } else {
+                state.copy(activeProgress = progress)
+            }
         }
-
-        mutableQueueState.value = currentState.copy(activeProgress = progress)
     }
 
     private suspend fun removeChapterEntry(chapterId: Long) {

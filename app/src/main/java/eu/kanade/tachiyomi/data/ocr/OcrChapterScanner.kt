@@ -54,7 +54,7 @@ internal class OcrChapterScanner(
         }
 
         return try {
-            withOcrScanSession.run {
+            withOcrScanSession.await {
                 clearCachedChapterOcr.await(chapterId)
                 onCacheStateChanged(chapterId, false)
 
@@ -108,44 +108,61 @@ internal class OcrChapterScanner(
                             onComplete(lastProgress)
                             true
                         } catch (e: Throwable) {
-                            if (e is CancellationException) {
-                                throw e
-                            }
-                            logcat(LogPriority.ERROR, e) { "Failed to scan OCR for chapterId=$chapterId" }
-                            clearCachedChapterOcr.await(chapterId)
-                            onCacheStateChanged(chapterId, false)
-                            onError(
-                                OcrChapterScanError(
-                                    mangaId = manga.id,
-                                    mangaTitle = manga.title,
-                                    chapterId = chapterId,
-                                    chapterName = chapter.name,
-                                    failure = OcrScanFailure.Unexpected(e.message),
-                                ),
+                            handleUnexpectedFailure(
+                                chapterId = chapterId,
+                                chapterName = chapter.name,
+                                mangaId = manga.id,
+                                mangaTitle = manga.title,
+                                throwable = e,
+                                logMessage = "Failed to scan OCR",
+                                onError = onError,
+                                onCacheStateChanged = onCacheStateChanged,
                             )
-                            false
                         }
                     }
                 }
             }
         } catch (e: Throwable) {
-            if (e is CancellationException) {
-                throw e
-            }
-            logcat(LogPriority.ERROR, e) { "Failed to start OCR scan for chapterId=$chapterId" }
-            clearCachedChapterOcr.await(chapterId)
-            onCacheStateChanged(chapterId, false)
-            onError(
-                OcrChapterScanError(
-                    mangaId = manga.id,
-                    mangaTitle = manga.title,
-                    chapterId = chapterId,
-                    chapterName = chapter.name,
-                    failure = OcrScanFailure.Unexpected(e.message),
-                ),
+            handleUnexpectedFailure(
+                chapterId = chapterId,
+                chapterName = chapter.name,
+                mangaId = manga.id,
+                mangaTitle = manga.title,
+                throwable = e,
+                logMessage = "Failed to start OCR scan",
+                onError = onError,
+                onCacheStateChanged = onCacheStateChanged,
             )
-            false
         }
+    }
+
+    private suspend fun handleUnexpectedFailure(
+        chapterId: Long,
+        chapterName: String,
+        mangaId: Long,
+        mangaTitle: String,
+        throwable: Throwable,
+        logMessage: String,
+        onError: (OcrChapterScanError) -> Unit,
+        onCacheStateChanged: (chapterId: Long, hasResults: Boolean) -> Unit,
+    ): Boolean {
+        if (throwable is CancellationException) {
+            throw throwable
+        }
+
+        logcat(LogPriority.ERROR, throwable) { "$logMessage for chapterId=$chapterId" }
+        clearCachedChapterOcr.await(chapterId)
+        onCacheStateChanged(chapterId, false)
+        onError(
+            OcrChapterScanError(
+                mangaId = mangaId,
+                mangaTitle = mangaTitle,
+                chapterId = chapterId,
+                chapterName = chapterName,
+                failure = OcrScanFailure.Unexpected(throwable.message),
+            ),
+        )
+        return false
     }
 }
 

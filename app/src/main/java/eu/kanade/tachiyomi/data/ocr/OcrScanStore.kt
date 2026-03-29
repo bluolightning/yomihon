@@ -85,7 +85,13 @@ internal object OcrScanStoreSerializer {
             return emptyList()
         }
 
-        return json.decodeFromString<List<PersistedOcrScanQueueEntry>>(encodedEntries)
+        val decodedEntries = runCatching {
+            json.decodeFromString<List<PersistedOcrScanQueueEntry>>(encodedEntries)
+        }.getOrElse {
+            return emptyList()
+        }
+
+        return decodedEntries
             .distinctBy(PersistedOcrScanQueueEntry::chapterId)
             .map { entry ->
                 OcrScanQueueEntry(
