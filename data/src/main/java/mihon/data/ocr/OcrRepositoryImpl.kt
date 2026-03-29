@@ -25,6 +25,7 @@ import mihon.domain.ocr.repository.OcrRepository
 import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.download.service.DownloadPreferences
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -34,10 +35,12 @@ import java.net.UnknownHostException
  */
 class OcrRepositoryImpl(
     private val context: Context,
+    downloadPreferences: DownloadPreferences,
 ) : OcrRepository {
     private val preferenceStore = AndroidPreferenceStore(context)
     private val ocrModelPref = preferenceStore.getEnum("pref_ocr_model", OcrModel.LEGACY)
-    private val wifiOnlyPref = preferenceStore.getBoolean("pref_download_only_over_wifi_key", true)
+    // Used to check setting for page scans, since those are similar in bandwidth to downloading
+    private val wifiOnlyPref = downloadPreferences.downloadOnlyOverWifi()
 
     private val environment by lazy { Environment.create() }
     private val textPostprocessor by lazy { TextPostprocessor() }
@@ -48,9 +51,10 @@ class OcrRepositoryImpl(
     private var glensEngine: GlensOcrEngine? = null
     private var detEngine: DetOcrEngine? = null
 
-    private val engineMutex = Mutex()
+    private val engineLocks = OcrEngineLocks()
     private val cleanupMutex = Mutex()
     private val sessionMutex = Mutex()
+    private val operationMutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val taskQueue = PrioritizedTaskQueue(scope) {
         scope.launch {
@@ -61,8 +65,9 @@ class OcrRepositoryImpl(
     private var cleanupRequested = false
 
     private var activeScanSessions = 0
+    private var activeOperations = 0
 
-    private enum class EngineType {
+    internal enum class EngineType {
         LEGACY,
         FAST,
         GLENS,
@@ -114,9 +119,17 @@ class OcrRepositoryImpl(
         return false
     }
 
-    private suspend fun getRecognitionEngine(type: EngineType): OcrEngine {
-        return engineMutex.withLock {
-            when (type) {
+    private fun fallbackFor(type: EngineType): EngineType {
+        return when (type) {
+            EngineType.GLENS -> EngineType.FAST
+            EngineType.FAST -> EngineType.GLENS
+            EngineType.LEGACY -> EngineType.GLENS
+        }
+    }
+
+    private suspend fun recognizeWithEngine(type: EngineType, image: Bitmap): String {
+        return engineLocks.withTextEngineLock(type) {
+            val engine = when (type) {
                 EngineType.FAST -> {
                     fastEngine ?: FastOcrEngine(context, environment, textPostprocessor).also {
                         fastEngine = it
@@ -133,35 +146,8 @@ class OcrRepositoryImpl(
                     }
                 }
             }
+            engine.recognizeText(image)
         }
-    }
-
-    private suspend fun getGlensEngine(): GlensOcrEngine {
-        return engineMutex.withLock {
-            glensEngine ?: GlensOcrEngine().also {
-                glensEngine = it
-            }
-        }
-    }
-
-    private suspend fun getDetEngine(): DetOcrEngine {
-        return engineMutex.withLock {
-            detEngine ?: UnavailableDetOcrEngine().also {
-                detEngine = it
-            }
-        }
-    }
-
-    private fun fallbackFor(type: EngineType): EngineType {
-        return when (type) {
-            EngineType.GLENS -> EngineType.FAST
-            EngineType.FAST -> EngineType.GLENS
-            EngineType.LEGACY -> EngineType.GLENS
-        }
-    }
-
-    private suspend fun recognizeWithEngine(type: EngineType, image: Bitmap): String {
-        return getRecognitionEngine(type).recognizeText(image)
     }
 
     private suspend fun recognizeWithFallback(primary: EngineType, image: Bitmap): String {
@@ -190,10 +176,12 @@ class OcrRepositoryImpl(
     }
 
     override suspend fun recognizeText(image: OcrImage): String {
-        return submitTask(PrioritizedTaskQueue.Priority.HIGH) {
-            image.useBitmap { bitmap ->
-                val primary = selectedEngineType()
-                recognizeWithFallback(primary, bitmap)
+        return withActiveOperation {
+            submitTask(PrioritizedTaskQueue.Priority.HIGH) {
+                image.useBitmap { bitmap ->
+                    val primary = selectedEngineType()
+                    recognizeWithFallback(primary, bitmap)
+                }
             }
         }
     }
@@ -203,7 +191,7 @@ class OcrRepositoryImpl(
         pageIndex: Int,
         image: OcrImage,
     ): OcrPageResult {
-        return submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
+        return withActiveOperation {
             val result = image.useBitmap { bitmap ->
                 when (val selectedModel = ocrModelPref.get()) {
                     OcrModel.GLENS -> scanWithGlens(
@@ -315,7 +303,14 @@ class OcrRepositoryImpl(
     ): OcrPageResult {
         checkWifiForScan()
         val result = try {
-            getGlensEngine().recognizePage(image)
+            submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
+                engineLocks.withTextEngineLock(EngineType.GLENS) {
+                    val engine = glensEngine ?: GlensOcrEngine().also {
+                        glensEngine = it
+                    }
+                    engine.recognizePage(image)
+                }
+            }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             if (isConnectivityFailure(error)) {
@@ -340,14 +335,22 @@ class OcrRepositoryImpl(
         modelKey: OcrModel,
         type: EngineType,
     ): OcrPageResult {
-        val detEngine = getDetEngine()
-        val boxes = detEngine.detectTextRegions(image)
+        val boxes = submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
+            engineLocks.withDetectionLock {
+                val engine = detEngine ?: UnavailableDetOcrEngine().also {
+                    detEngine = it
+                }
+                engine.detectTextRegions(image)
+            }
+        }
             .filter(OcrBoundingBox::isValid)
 
         val regions = boxes.mapIndexedNotNull { index, box ->
             val crop = cropBitmap(image, box) ?: return@mapIndexedNotNull null
             try {
-                val text = recognizeWithEngine(type, crop).trim()
+                val text = submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
+                    recognizeWithEngine(type, crop)
+                }.trim()
                 if (text.isBlank()) {
                     null
                 } else {
@@ -407,9 +410,24 @@ class OcrRepositoryImpl(
         return taskQueue.submit(priority, block)
     }
 
+    private suspend fun <T> withActiveOperation(block: suspend () -> T): T {
+        operationMutex.withLock {
+            activeOperations++
+        }
+
+        return try {
+            block()
+        } finally {
+            operationMutex.withLock {
+                activeOperations--
+            }
+            performDeferredCleanupIfIdle()
+        }
+    }
+
     private suspend fun performDeferredCleanupIfIdle() {
         val shouldCleanup = cleanupMutex.withLock {
-            if (!cleanupRequested || !taskQueue.isIdle() || hasActiveScanSessions()) {
+            if (!cleanupRequested || !taskQueue.isIdle() || hasActiveOperations() || hasActiveScanSessions()) {
                 return@withLock false
             }
 
@@ -447,8 +465,12 @@ class OcrRepositoryImpl(
         return sessionMutex.withLock { activeScanSessions > 0 }
     }
 
+    private suspend fun hasActiveOperations(): Boolean {
+        return operationMutex.withLock { activeOperations > 0 }
+    }
+
     private suspend fun closeEngines() {
-        engineMutex.withLock {
+        engineLocks.withAllLocks {
             legacyEngine?.close()
             legacyEngine = null
 

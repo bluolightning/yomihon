@@ -17,7 +17,9 @@ import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
+import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.core.common.preference.getEnum
+import tachiyomi.core.common.preference.AndroidPreferenceStore
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -33,7 +35,10 @@ class OcrRepositoryImplTest {
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
-        ocrRepository = OcrRepositoryImpl(context)
+        ocrRepository = OcrRepositoryImpl(
+            context = context,
+            downloadPreferences = DownloadPreferences(AndroidPreferenceStore(context)),
+        )
         ocrProcessor = OcrProcessor(ocrRepository)
     }
 
