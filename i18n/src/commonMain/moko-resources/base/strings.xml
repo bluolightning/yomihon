@@ -1177,6 +1177,7 @@
     <string name="ocr_select_region">Drag to select text region</string>
     <string name="ocr_processing">Processing OCR…</string>
     <string name="ocr_preprocess_title">OCR scanning</string>
+    <string name="ocr_preprocess_queued">Queued</string>
     <string name="ocr_preprocess_progress">%1$s - %2$d/%3$d pages scanned</string>
     <string name="ocr_preprocess_completed">%1$s scanned</string>
     <string name="ocr_preprocess_failed">%1$s could not be scanned</string>

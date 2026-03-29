@@ -278,7 +278,7 @@ class DownloadQueueScreenModel(
         action: OcrQueueAction,
     ) {
         screenModelScope.launch {
-            ocrQueueActions.run(chapterId, action)
+            ocrQueueActions.await(chapterId, action)
         }
     }
 

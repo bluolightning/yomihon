@@ -7,7 +7,7 @@ internal class OcrQueueActions(
     private val getChapter: GetChapter,
 ) {
 
-    suspend fun run(
+    suspend fun await(
         chapterId: Long,
         action: OcrQueueAction,
     ) {
@@ -49,18 +49,13 @@ internal class OcrQueueActions(
         chapterIds: List<Long>,
         chapterId: Long,
     ): List<Long> {
-        val mangaId = getChapter.await(chapterId)?.mangaId ?: return listOf(chapterId)
+        val targetMangaId = getChapter.await(chapterId)?.mangaId ?: return listOf(chapterId)
 
-        val chapterMap = chapterIds.associateWith { id ->
-            getChapter.await(id)?.mangaId
+        val seriesIds = chapterIds.filter { id ->
+            id == chapterId || getChapter.await(id)?.mangaId == targetMangaId
         }
 
-        val seriesIds = chapterIds.filter { chapterMap[it] == mangaId }
-        return if (seriesIds.isEmpty()) {
-            listOf(chapterId)
-        } else {
-            seriesIds
-        }
+        return seriesIds.ifEmpty { listOf(chapterId) }
     }
 }
 

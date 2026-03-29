@@ -424,7 +424,7 @@ private fun OcrQueueRow(
     onAction: (Long, OcrQueueAction) -> Unit,
 ) {
     val stateLabel = when (item.state) {
-        OcrQueueItemState.Queued -> stringResource(MR.strings.dictionary_migration_stage_queued)
+        OcrQueueItemState.Queued -> stringResource(MR.strings.ocr_preprocess_queued)
         OcrQueueItemState.Error -> item.lastError ?: stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
         OcrQueueItemState.Scanning -> null
     }
