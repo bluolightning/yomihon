@@ -16,14 +16,12 @@ internal class OcrScanStore(
     private val preferenceStore = AndroidPreferenceStore(context)
     private val queuePreference = preferenceStore.getString(QUEUE_KEY, "")
     private val pausedPreference = preferenceStore.getBoolean(PAUSED_KEY, false)
-    private val legacyActiveChapterPreference = preferenceStore.getLong(ACTIVE_CHAPTER_KEY, NO_ACTIVE_CHAPTER)
 
     fun snapshot(): OcrScanStoreSnapshot {
         return OcrScanStoreSnapshot(
             entries = OcrScanStoreSerializer.restore(
                 json = json,
                 encodedEntries = queuePreference.get(),
-                legacyActiveChapterId = legacyActiveChapterPreference.get().takeIf { it != NO_ACTIVE_CHAPTER },
             ),
             isPaused = pausedPreference.get(),
         )
@@ -38,16 +36,12 @@ internal class OcrScanStore(
                 ),
             )
             pausedPreference.set(snapshot.isPaused)
-            legacyActiveChapterPreference.set(NO_ACTIVE_CHAPTER)
         }
     }
 
     companion object {
-        // Keep the persisted keys stable so existing queued scan work survives upgrades.
         internal const val QUEUE_KEY = "ocr_preprocess_queue"
-        internal const val ACTIVE_CHAPTER_KEY = "ocr_preprocess_active_chapter"
         internal const val PAUSED_KEY = "ocr_preprocess_paused"
-        private const val NO_ACTIVE_CHAPTER = -1L
     }
 }
 
@@ -55,10 +49,8 @@ internal object OcrScanStoreSerializer {
     fun restore(
         json: Json,
         encodedEntries: String,
-        legacyActiveChapterId: Long? = null,
     ): List<OcrScanQueueEntry> {
-        val persistedEntries = decodeEntries(json, encodedEntries)
-        val normalizedPersistedEntries = persistedEntries.map { entry ->
+        return decodeEntries(json, encodedEntries).map { entry ->
             entry.copy(
                 state = if (entry.state == OcrScanQueueEntry.State.SCANNING) {
                     OcrScanQueueEntry.State.QUEUED
@@ -67,17 +59,6 @@ internal object OcrScanStoreSerializer {
                 },
                 lastError = null,
             )
-        }
-
-        return buildList {
-            legacyActiveChapterId?.let { add(OcrScanQueueEntry(it, OcrScanQueueEntry.State.QUEUED)) }
-            normalizedPersistedEntries
-                .filterNot { entry -> entry.chapterId == legacyActiveChapterId }
-                .forEach { entry ->
-                    if (none { existing -> existing.chapterId == entry.chapterId }) {
-                        add(entry)
-                    }
-                }
         }
     }
 
@@ -104,26 +85,14 @@ internal object OcrScanStoreSerializer {
             return emptyList()
         }
 
-        return try {
-            json.decodeFromString<List<PersistedOcrScanQueueEntry>>(encodedEntries)
-                .distinctBy(PersistedOcrScanQueueEntry::chapterId)
-                .map { entry ->
-                    OcrScanQueueEntry(
-                        chapterId = entry.chapterId,
-                        state = entry.state,
-                    )
-                }
-        } catch (_: Throwable) {
-            encodedEntries.split(',')
-                .mapNotNull(String::toLongOrNull)
-                .distinct()
-                .map { chapterId ->
-                    OcrScanQueueEntry(
-                        chapterId = chapterId,
-                        state = OcrScanQueueEntry.State.QUEUED,
-                    )
-                }
-        }
+        return json.decodeFromString<List<PersistedOcrScanQueueEntry>>(encodedEntries)
+            .distinctBy(PersistedOcrScanQueueEntry::chapterId)
+            .map { entry ->
+                OcrScanQueueEntry(
+                    chapterId = entry.chapterId,
+                    state = entry.state,
+                )
+            }
     }
 }
 
