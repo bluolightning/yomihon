@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class PrioritizedTaskQueueTest {
@@ -47,5 +48,40 @@ class PrioritizedTaskQueueTest {
             listOf("normal-1-start", "normal-1-end", "high", "normal-2"),
             events,
         )
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun highPriorityTaskRunsBeforeLaterPageScanChunks() = runTest {
+        val events = mutableListOf<String>()
+        val holdFirstChunk = CompletableDeferred<Unit>()
+        val queue = PrioritizedTaskQueue(backgroundScope)
+
+        val pageScan = async {
+            queue.submit(PrioritizedTaskQueue.Priority.NORMAL) {
+                events += "region-1-start"
+                holdFirstChunk.await()
+                events += "region-1-end"
+            }
+
+            queue.submit(PrioritizedTaskQueue.Priority.NORMAL) {
+                events += "region-2"
+            }
+        }
+
+        advanceUntilIdle()
+
+        val recognizeText = async {
+            queue.submit(PrioritizedTaskQueue.Priority.HIGH) {
+                events += "recognize-text"
+            }
+        }
+
+        holdFirstChunk.complete(Unit)
+
+        pageScan.await()
+        recognizeText.await()
+
+        assertTrue(events.indexOf("recognize-text") < events.indexOf("region-2"))
     }
 }
