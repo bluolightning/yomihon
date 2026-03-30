@@ -180,9 +180,11 @@ fun MangaChapterListItem(
                                 imageVector = Icons.Outlined.DocumentScanner,
                                 contentDescription = stringResource(MR.strings.ocr_preprocess_title),
                                 modifier = Modifier
-                                    .sizeIn(maxHeight = with(LocalDensity.current) {
-                                        subtitleStyle.fontSize.toDp()
-                                    }),
+                                    .sizeIn(
+                                        maxHeight = with(LocalDensity.current) {
+                                            subtitleStyle.fontSize.toDp()
+                                        },
+                                    ),
                                 tint = subtitleColor,
                             )
                         }

@@ -28,7 +28,9 @@ internal class OcrHolder(private val view: View, val adapter: OcrAdapter) :
 
         val stateLabel = when (item.state) {
             OcrQueueItemState.Queued -> view.context.stringResource(MR.strings.ocr_preprocess_queued)
-            OcrQueueItemState.Error -> item.lastError ?: view.context.stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
+            OcrQueueItemState.Error ->
+                item.lastError
+                    ?: view.context.stringResource(MR.strings.ocr_preprocess_failed, item.chapterName)
             OcrQueueItemState.Scanning -> null
         }
 

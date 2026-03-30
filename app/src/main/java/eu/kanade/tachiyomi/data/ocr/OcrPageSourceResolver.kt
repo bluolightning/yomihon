@@ -7,10 +7,10 @@ import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
@@ -118,7 +118,6 @@ internal class OcrPageSourceResolver(
 
         return ResolvedOcrPages(pages)
     }
-
 }
 
 private val DOWNLOAD_WAIT_TIMEOUT = 15.seconds

@@ -53,8 +53,14 @@ class OcrQueueScreenModel(
                 when (menuItem.itemId) {
                     R.id.move_to_top -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.MoveToTop)
                     R.id.move_to_bottom -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.MoveToBottom)
-                    R.id.move_to_top_series -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.MoveSeriesToTop)
-                    R.id.move_to_bottom_series -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.MoveSeriesToBottom)
+                    R.id.move_to_top_series -> handleOcrAction(
+                        item.ocrQueueItem.chapterId,
+                        OcrQueueAction.MoveSeriesToTop,
+                    )
+                    R.id.move_to_bottom_series -> handleOcrAction(
+                        item.ocrQueueItem.chapterId,
+                        OcrQueueAction.MoveSeriesToBottom,
+                    )
                     R.id.cancel_download -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.Cancel)
                     R.id.cancel_series -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.CancelSeries)
                 }

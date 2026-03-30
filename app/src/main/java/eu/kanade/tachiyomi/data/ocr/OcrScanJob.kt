@@ -87,7 +87,7 @@ internal class OcrScanJob(
             return WorkManager.getInstance(context)
                 .getWorkInfosForUniqueWorkLiveData(TAG)
                 .asFlow()
-                .map { list -> list.count { it.state == WorkInfo.State.RUNNING } == 1 }
+                .map { list -> list.any { it.state == WorkInfo.State.RUNNING } }
         }
     }
 }

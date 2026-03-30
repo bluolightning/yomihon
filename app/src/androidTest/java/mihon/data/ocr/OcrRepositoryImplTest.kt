@@ -17,9 +17,9 @@ import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
-import tachiyomi.domain.download.service.DownloadPreferences
-import tachiyomi.core.common.preference.getEnum
 import tachiyomi.core.common.preference.AndroidPreferenceStore
+import tachiyomi.core.common.preference.getEnum
+import tachiyomi.domain.download.service.DownloadPreferences
 import kotlin.time.Duration.Companion.minutes
 
 /**

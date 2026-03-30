@@ -2,9 +2,9 @@ package eu.kanade.tachiyomi.data.ocr
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import tachiyomi.core.common.util.system.ImageUtil
 import java.io.ByteArrayInputStream
 import java.io.InputStream
-import tachiyomi.core.common.util.system.ImageUtil
 
 internal fun decodeBitmap(stream: InputStream): Bitmap? {
     return BitmapFactory.decodeStream(

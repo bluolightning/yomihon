@@ -39,6 +39,7 @@ class OcrRepositoryImpl(
 ) : OcrRepository {
     private val preferenceStore = AndroidPreferenceStore(context)
     private val ocrModelPref = preferenceStore.getEnum("pref_ocr_model", OcrModel.LEGACY)
+
     // Used to check setting for page scans, since those are similar in bandwidth to downloading
     private val wifiOnlyPref = downloadPreferences.downloadOnlyOverWifi()
 
