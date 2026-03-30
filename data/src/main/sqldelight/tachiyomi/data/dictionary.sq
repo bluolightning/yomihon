@@ -207,10 +207,6 @@ SELECT COUNT(*)
 FROM dictionary_tags
 WHERE dictionary_id = :dictionaryId;
 
-insertTag:
-INSERT INTO dictionary_tags(dictionary_id, name, category, tag_order, notes, score)
-VALUES (:dictionary_id, :name, :category, :tag_order, :notes, :score);
-
 deleteTagsForDictionary:
 DELETE FROM dictionary_tags
 WHERE dictionary_id = :dictionaryId;
@@ -252,13 +248,6 @@ WHERE T.expression = :expression
   AND D.is_enabled = 1
 ORDER BY D.priority ASC, T.score DESC;
 
-getTermsForDictionary:
-SELECT *
-FROM dictionary_terms
-WHERE dictionary_id = :dictionaryId
-ORDER BY _id ASC
-LIMIT :limit OFFSET :offset;
-
 getTermsExportForDictionary:
 SELECT expression, reading, definition_tags, rules, score, glossary, sequence, term_tags
 FROM dictionary_terms
@@ -270,10 +259,6 @@ getTermCountForDictionary:
 SELECT COUNT(*)
 FROM dictionary_terms
 WHERE dictionary_id = :dictionaryId;
-
-insertTerm:
-INSERT INTO dictionary_terms(dictionary_id, expression, reading, definition_tags, rules, score, glossary, sequence, term_tags)
-VALUES (:dictionary_id, :expression, :reading, :definition_tags, :rules, :score, :glossary, :sequence, :term_tags);
 
 deleteTermsForDictionary:
 DELETE FROM dictionary_terms
@@ -289,13 +274,6 @@ WHERE K.character = :character
   AND K.dictionary_id IN :dictionaryIds
   AND D.is_enabled = 1;
 
-getKanjiForDictionary:
-SELECT *
-FROM dictionary_kanji
-WHERE dictionary_id = :dictionaryId
-ORDER BY _id ASC
-LIMIT :limit OFFSET :offset;
-
 getKanjiExportForDictionary:
 SELECT character, onyomi, kunyomi, tags, meanings, stats
 FROM dictionary_kanji
@@ -307,10 +285,6 @@ getKanjiCountForDictionary:
 SELECT COUNT(*)
 FROM dictionary_kanji
 WHERE dictionary_id = :dictionaryId;
-
-insertKanji:
-INSERT INTO dictionary_kanji(dictionary_id, character, onyomi, kunyomi, tags, meanings, stats)
-VALUES (:dictionary_id, :character, :onyomi, :kunyomi, :tags, :meanings, :stats);
 
 deleteKanjiForDictionary:
 DELETE FROM dictionary_kanji
@@ -326,13 +300,6 @@ WHERE M.expression = :expression
   AND M.dictionary_id IN :dictionaryIds
   AND D.is_enabled = 1;
 
-getTermMetaForDictionary:
-SELECT *
-FROM dictionary_term_meta
-WHERE dictionary_id = :dictionaryId
-ORDER BY _id ASC
-LIMIT :limit OFFSET :offset;
-
 getTermMetaExportForDictionary:
 SELECT expression, mode, data
 FROM dictionary_term_meta
@@ -344,10 +311,6 @@ getTermMetaCountForDictionary:
 SELECT COUNT(*)
 FROM dictionary_term_meta
 WHERE dictionary_id = :dictionaryId;
-
-insertTermMeta:
-INSERT INTO dictionary_term_meta(dictionary_id, expression, mode, data)
-VALUES (:dictionary_id, :expression, :mode, :data);
 
 deleteTermMetaForDictionary:
 DELETE FROM dictionary_term_meta
@@ -363,13 +326,6 @@ WHERE M.character = :character
   AND M.dictionary_id IN :dictionaryIds
   AND D.is_enabled = 1;
 
-getKanjiMetaForDictionary:
-SELECT *
-FROM dictionary_kanji_meta
-WHERE dictionary_id = :dictionaryId
-ORDER BY _id ASC
-LIMIT :limit OFFSET :offset;
-
 getKanjiMetaExportForDictionary:
 SELECT character, mode, data
 FROM dictionary_kanji_meta
@@ -381,10 +337,6 @@ getKanjiMetaCountForDictionary:
 SELECT COUNT(*)
 FROM dictionary_kanji_meta
 WHERE dictionary_id = :dictionaryId;
-
-insertKanjiMeta:
-INSERT INTO dictionary_kanji_meta(dictionary_id, character, mode, data)
-VALUES (:dictionary_id, :character, :mode, :data);
 
 deleteKanjiMetaForDictionary:
 DELETE FROM dictionary_kanji_meta
