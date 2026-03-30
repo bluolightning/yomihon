@@ -1,13 +1,10 @@
 package mihon.domain.dictionary.service
 
-import java.io.File
 import mihon.domain.dictionary.model.Dictionary
 
 interface DictionaryStorageGateway {
-    fun getDictionaryStorageParent(dictionaryId: Long): File
-
     suspend fun importDictionary(
-        zipPath: String,
+        archivePath: String,
         dictionary: Dictionary,
     ): DictionaryStorageImportOutcome
 
@@ -16,9 +13,9 @@ interface DictionaryStorageGateway {
         sampleExpression: String?,
     ): Boolean
 
-    suspend fun rebuildSession()
+    suspend fun refreshSearchSession()
 
-    fun markDirty()
+    suspend fun clearDictionaryStorage(dictionaryId: Long)
 }
 
 data class DictionaryStorageImportOutcome(

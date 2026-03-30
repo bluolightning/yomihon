@@ -28,6 +28,7 @@ import mihon.domain.dictionary.service.DictionaryParseException
 import mihon.domain.dictionary.service.DictionaryParser
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.io.StringReader
 
 class DictionaryParserImpl : DictionaryParser {
 
@@ -88,6 +89,29 @@ class DictionaryParserImpl : DictionaryParser {
 
     override fun parseTermBank(stream: InputStream, version: Int): Sequence<DictionaryTerm> =
         parseBank(stream, "term_bank") { reader -> readSingleTerm(reader, version) }
+
+    override fun parseGlossary(rawGlossary: String): List<GlossaryEntry> {
+        if (rawGlossary.isBlank()) return emptyList()
+
+        val reader = JsonReader(StringReader(rawGlossary))
+        return try {
+            when (reader.peek()) {
+                JsonToken.BEGIN_ARRAY -> readGlossaryArray(reader)
+                JsonToken.STRING -> listOf(GlossaryEntry.TextDefinition(reader.nextString()))
+                JsonToken.BEGIN_OBJECT -> listOf(readGlossaryObject(reader))
+                JsonToken.NULL -> {
+                    reader.nextNull()
+                    emptyList()
+                }
+                else -> {
+                    reader.skipValue()
+                    emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            throw DictionaryParseException("Failed to parse glossary", e)
+        }
+    }
 
     private fun readSingleTerm(reader: JsonReader, version: Int): DictionaryTerm {
         reader.beginArray()

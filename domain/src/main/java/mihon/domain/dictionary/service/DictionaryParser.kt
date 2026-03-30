@@ -2,6 +2,7 @@ package mihon.domain.dictionary.service
 
 import mihon.domain.dictionary.model.DictionaryIndex
 import mihon.domain.dictionary.model.DictionaryTerm
+import mihon.domain.dictionary.model.GlossaryEntry
 import java.io.InputStream
 
 /**
@@ -12,6 +13,7 @@ import java.io.InputStream
 interface DictionaryParser {
     fun parseIndex(jsonString: String): DictionaryIndex
     fun parseTermBank(stream: InputStream, version: Int): Sequence<DictionaryTerm>
+    fun parseGlossary(rawGlossary: String): List<GlossaryEntry>
 }
 
 class DictionaryParseException(message: String, cause: Throwable? = null) : Exception(message, cause)

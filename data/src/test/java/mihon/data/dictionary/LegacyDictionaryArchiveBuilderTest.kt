@@ -91,7 +91,7 @@ class LegacyDictionaryArchiveBuilderTest {
         coEvery { repository.getKanjiMetaExportForDictionary(1L, any(), any()) } returns emptyList()
 
         val output = File(tempDir, "dictionary.zip")
-        val result = builder.buildArchive(dictionary, output)
+        val result = builder.buildArchive(dictionary, output.absolutePath)
 
         result.sampleExpression shouldBe "食べる"
 
@@ -172,7 +172,7 @@ class LegacyDictionaryArchiveBuilderTest {
         coEvery { repository.getKanjiMetaExportForDictionary(2L, any(), 1L) } returns emptyList()
 
         val output = File(tempDir, "structured.zip")
-        builder.buildArchive(dictionary, output)
+        builder.buildArchive(dictionary, output.absolutePath)
 
         ZipFile(output).use { zip ->
             zip.getInputStream(zip.getEntry("term_bank_1.json")).bufferedReader().use { reader ->

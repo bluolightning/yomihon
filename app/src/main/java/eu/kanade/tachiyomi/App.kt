@@ -53,6 +53,7 @@ import eu.kanade.tachiyomi.util.system.notify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import logcat.AndroidLogcatLogger
 import logcat.LogPriority
 import logcat.LogcatLogger
@@ -188,7 +189,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     }
 
     private fun scheduleDictionaryMigration(scope: androidx.lifecycle.LifecycleCoroutineScope) {
-        scope.launchWhenCreated {
+        scope.launch {
             val repository = Injekt.get<DictionaryRepository>()
             val hasPendingMigration = DictionaryMigrationRecovery.hasPendingMigration(
                 hasLegacyDictionaries = repository.getLegacyDictionaries().isNotEmpty(),

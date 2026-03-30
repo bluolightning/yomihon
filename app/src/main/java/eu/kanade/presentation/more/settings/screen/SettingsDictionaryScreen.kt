@@ -109,7 +109,7 @@ object SettingsDictionaryScreen : Screen {
             contract = ActivityResultContracts.GetContent(),
         ) { uri ->
             if (uri != null) {
-                screenModel.importDictionaryFromUri(context, uri)
+                screenModel.importDictionaryFromUri(uri)
             } else {
                 context.toast(MR.strings.file_null_uri_error)
             }
@@ -223,7 +223,7 @@ object SettingsDictionaryScreen : Screen {
                                         RecommendedDictionaryItem(
                                             dictionary = dict,
                                             enabled = !state.isImporting && !state.isDeleting && !state.isMigrating,
-                                            onImport = { screenModel.importDictionaryFromUrl(context, dict.url) },
+                                            onImport = { screenModel.importDictionaryFromUrl(dict.url) },
                                         )
                                     }
                                 }

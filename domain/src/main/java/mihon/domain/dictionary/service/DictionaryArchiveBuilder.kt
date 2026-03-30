@@ -1,18 +1,17 @@
 package mihon.domain.dictionary.service
 
-import java.io.File
 import mihon.domain.dictionary.model.Dictionary
 
 interface DictionaryArchiveBuilder {
     suspend fun buildArchive(
         dictionary: Dictionary,
-        destination: File,
+        destinationPath: String,
         onProgress: suspend (DictionaryArchiveProgress) -> Unit = {},
     ): DictionaryArchiveBuildResult
 }
 
 data class DictionaryArchiveBuildResult(
-    val archiveFile: File,
+    val archivePath: String,
     val sampleExpression: String?,
     val tagCount: Long,
     val termCount: Long,

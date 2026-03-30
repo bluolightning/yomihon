@@ -33,9 +33,10 @@ class LegacyDictionaryArchiveBuilder(
 
     override suspend fun buildArchive(
         dictionary: Dictionary,
-        destination: File,
+        destinationPath: String,
         onProgress: suspend (DictionaryArchiveProgress) -> Unit,
     ): DictionaryArchiveBuildResult = withContext(Dispatchers.IO) {
+        val destination = File(destinationPath)
         destination.parentFile?.mkdirs()
         if (destination.exists()) {
             destination.delete()
@@ -79,7 +80,7 @@ class LegacyDictionaryArchiveBuilder(
         }
 
         DictionaryArchiveBuildResult(
-            archiveFile = destination,
+            archivePath = destination.absolutePath,
             sampleExpression = sampleExpression,
             tagCount = tagCount.toLong(),
             termCount = termCount,

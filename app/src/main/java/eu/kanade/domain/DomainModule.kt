@@ -36,6 +36,8 @@ import eu.kanade.tachiyomi.data.ocr.OcrScanNotifier
 import eu.kanade.tachiyomi.data.ocr.OcrScanStore
 import eu.kanade.tachiyomi.data.ocr.OcrScanWorkerController
 import eu.kanade.tachiyomi.data.ocr.WorkManagerOcrScanWorkerController
+import eu.kanade.tachiyomi.data.dictionary.DictionaryImportCoordinator
+import eu.kanade.tachiyomi.data.dictionary.WorkManagerDictionaryImportCoordinator
 import mihon.data.ankidroid.AnkiDroidRepositoryImpl
 import mihon.data.dictionary.HoshiDictionaryStore
 import mihon.data.dictionary.LegacyDictionaryArchiveBuilder
@@ -254,11 +256,12 @@ class DomainModule : InjektModule {
 
         addSingletonFactory<DictionaryRepository> { DictionaryRepositoryImpl(get()) }
         addSingletonFactory<DictionaryParser> { DictionaryParserImpl() }
-        addSingletonFactory { HoshiDictionaryStore(get<Application>(), get()) }
+        addSingletonFactory { HoshiDictionaryStore(get<Application>(), get(), get()) }
         addSingletonFactory<DictionarySearchBackend> { get<HoshiDictionaryStore>() }
         addSingletonFactory<DictionaryStorageGateway> { get<HoshiDictionaryStore>() }
         addSingletonFactory { LegacyDictionaryArchiveBuilder(get()) }
         addSingletonFactory<DictionaryArchiveBuilder> { get<LegacyDictionaryArchiveBuilder>() }
+        addSingletonFactory<DictionaryImportCoordinator> { WorkManagerDictionaryImportCoordinator(get<Application>()) }
         addFactory { DictionaryInteractor(get()) }
         addFactory { SearchDictionaryTerms(get(), get()) }
 

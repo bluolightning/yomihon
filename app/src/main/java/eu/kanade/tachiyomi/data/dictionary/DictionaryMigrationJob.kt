@@ -57,7 +57,7 @@ class DictionaryMigrationJob(
         }.build()
 
         return ForegroundInfo(
-            Notifications.ID_DICTIONARY_IMPORT_PROGRESS,
+            Notifications.ID_DICTIONARY_MIGRATION_PROGRESS,
             notification,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -71,17 +71,17 @@ class DictionaryMigrationJob(
         setForegroundSafely()
 
         return try {
-            val dictionaries = loadPendingDictionaries()
+            val (dictionaries, statusesById) = loadPendingDictionariesWithStatuses()
             if (dictionaries.isEmpty()) {
                 return Result.success()
             }
 
-            var completed = dictionaries.count { dictionaryRepository.getMigrationStatus(it.id)?.state == DictionaryMigrationState.COMPLETE }
+            var completed = dictionaries.count { statusesById[it.id]?.state == DictionaryMigrationState.COMPLETE }
 
             dictionaries.forEach { dictionary ->
                 coroutineContext.ensureActive()
 
-                val existingStatus = dictionaryRepository.getMigrationStatus(dictionary.id)
+                val existingStatus = statusesById[dictionary.id]
                 if (existingStatus?.state == DictionaryMigrationState.COMPLETE) {
                     return@forEach
                 }
@@ -119,19 +119,24 @@ class DictionaryMigrationJob(
             logcat(LogPriority.ERROR, e) { "Dictionary migration failed" }
             Result.failure()
         } finally {
-            context.cancelNotification(Notifications.ID_DICTIONARY_IMPORT_PROGRESS)
+            context.cancelNotification(Notifications.ID_DICTIONARY_MIGRATION_PROGRESS)
         }
     }
 
-    private suspend fun loadPendingDictionaries(): List<Dictionary> {
+    private suspend fun loadPendingDictionariesWithStatuses(): Pair<List<Dictionary>, Map<Long, DictionaryMigrationStatus>> {
+        val statusesByDictionaryId = dictionaryRepository.getAllMigrationStatuses()
+            .associateBy { it.dictionaryId }
+
         val dictionaries = dictionaryRepository.getAllDictionaries()
             .sortedWith(compareBy<Dictionary> { it.priority }.thenBy { it.title })
 
-        return dictionaries.filter { dictionary ->
-            val status = dictionaryRepository.getMigrationStatus(dictionary.id)
+        val pending = dictionaries.filter { dictionary ->
+            val status = statusesByDictionaryId[dictionary.id]
             dictionary.backend == DictionaryBackend.LEGACY_DB ||
                 (status != null && status.state != DictionaryMigrationState.COMPLETE)
         }
+
+        return pending to statusesByDictionaryId
     }
 
     private suspend fun migrateDictionary(
@@ -167,10 +172,7 @@ class DictionaryMigrationJob(
             deleteRecursively()
             mkdirs()
         }
-        val storageParent = dictionaryStorageGateway.getDictionaryStorageParent(dictionary.id).apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        dictionaryStorageGateway.clearDictionaryStorage(dictionary.id)
 
         try {
             val archiveFile = File(tempDir, "reconstructed.zip")
@@ -184,7 +186,7 @@ class DictionaryMigrationJob(
 
             val archive = archiveBuilder.buildArchive(
                 dictionary = dictionary,
-                destination = archiveFile,
+                destinationPath = archiveFile.absolutePath,
             ) { progress ->
                 updateStatus(
                     dictionary = dictionary,
@@ -204,7 +206,7 @@ class DictionaryMigrationJob(
                 total = total,
             )
 
-            val importOutcome = dictionaryStorageGateway.importDictionary(archive.archiveFile.absolutePath, dictionary)
+            val importOutcome = dictionaryStorageGateway.importDictionary(archive.archivePath, dictionary)
             val storagePath = importOutcome.storagePath
                 ?: throw IllegalStateException("Imported dictionary has no storage path")
             if (!importOutcome.success) {
@@ -241,8 +243,7 @@ class DictionaryMigrationJob(
                 completed = completed,
                 total = total,
             )
-            dictionaryStorageGateway.markDirty()
-            dictionaryStorageGateway.rebuildSession()
+            dictionaryStorageGateway.refreshSearchSession()
 
             updateStatus(
                 dictionary = dictionary,
@@ -335,11 +336,15 @@ class DictionaryMigrationJob(
             )
         }
 
-        fun isScheduledOrRunning(context: Context): Boolean {
-            return context.workManager
+        suspend fun isScheduledOrRunning(context: Context): Boolean = withContext(Dispatchers.IO) {
+            context.workManager
                 .getWorkInfosByTag(TAG)
                 .get()
-                .any { it.state == androidx.work.WorkInfo.State.ENQUEUED || it.state == androidx.work.WorkInfo.State.RUNNING || it.state == androidx.work.WorkInfo.State.BLOCKED }
+                .any {
+                    it.state == androidx.work.WorkInfo.State.ENQUEUED ||
+                        it.state == androidx.work.WorkInfo.State.RUNNING ||
+                        it.state == androidx.work.WorkInfo.State.BLOCKED
+                }
         }
     }
 }

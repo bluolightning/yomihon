@@ -47,18 +47,18 @@ class DictionaryMigrationNotifier(private val context: Context) {
             setProgress(total.coerceAtLeast(1), completed.coerceAtMost(total), false)
             setOnlyAlertOnce(true)
             clearActions()
-            show(Notifications.ID_DICTIONARY_IMPORT_PROGRESS)
+            show(Notifications.ID_DICTIONARY_MIGRATION_PROGRESS)
         }
     }
 
     fun showMigrationCompleteNotification() {
-        context.cancelNotification(Notifications.ID_DICTIONARY_IMPORT_PROGRESS)
+        context.cancelNotification(Notifications.ID_DICTIONARY_MIGRATION_PROGRESS)
 
         with(completeNotificationBuilder) {
             setContentTitle(context.stringResource(MR.strings.dictionary_migration_complete))
             setContentText(context.stringResource(MR.strings.dictionary_migration_complete_summary))
 
-            show(Notifications.ID_DICTIONARY_IMPORT_COMPLETE)
+            show(Notifications.ID_DICTIONARY_MIGRATION_COMPLETE)
         }
     }
 }

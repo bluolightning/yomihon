@@ -20,7 +20,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.archive.ArchiveReader
@@ -55,12 +54,11 @@ class DictionaryImportJob(
         val urlString = inputData.getString(KEY_URL)
 
         if (uriString == null && urlString == null) {
-            return Result.failure(workDataOf(KEY_PROGRESS_ERROR to "No URI or URL provided"))
+            return Result.failure()
         }
 
         var tempFile: File? = null
         var importedDictionaryId: Long? = null
-        var importedStorageParent: File? = null
 
         return try {
             val archiveFile = withContext(Dispatchers.IO) {
@@ -77,45 +75,16 @@ class DictionaryImportJob(
             }
 
             importedDictionaryId = outcome.dictionaryId
-            importedStorageParent = outcome.storageParent
-
-            setProgress(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_COMPLETE,
-                    KEY_PROGRESS_DICTIONARY_TITLE to outcome.title,
-                ),
-            )
-            Result.success(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_COMPLETE,
-                    KEY_PROGRESS_DICTIONARY_TITLE to outcome.title,
-                ),
-            )
+            Result.success()
         } catch (e: CancellationException) {
             logcat(LogPriority.INFO) { "Dictionary import cancelled" }
-            cleanupPartialImport(importedDictionaryId, importedStorageParent)
-            Result.failure(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to "Import cancelled",
-                ),
-            )
+            cleanupPartialImport(importedDictionaryId)
+            Result.failure()
         } catch (e: TrustedFileDownloader.TrustedDownloadException) {
             val errorMessage = getDownloadErrorMessage(e)
             logcat(LogPriority.WARN, e) { "Failed to download dictionary: $errorMessage" }
-            cleanupPartialImport(importedDictionaryId, importedStorageParent)
-            setProgress(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
-            Result.failure(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
+            cleanupPartialImport(importedDictionaryId)
+            Result.failure()
         } catch (e: DictionaryImportException) {
             val errorMessage = if (e.message == "already_imported") {
                 "Dictionary already imported"
@@ -123,43 +92,19 @@ class DictionaryImportJob(
                 e.message ?: "Failed to import dictionary"
             }
             logcat(LogPriority.WARN, e) { "Dictionary import error: $errorMessage" }
-            cleanupPartialImport(importedDictionaryId, importedStorageParent)
-            setProgress(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
-            Result.failure(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
+            cleanupPartialImport(importedDictionaryId)
+            Result.failure()
         } catch (e: Exception) {
             val errorMessage = e.message ?: "Failed to import dictionary"
             logcat(LogPriority.ERROR, e) { "Dictionary import failed: $errorMessage" }
-            cleanupPartialImport(importedDictionaryId, importedStorageParent)
-            setProgress(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
-            Result.failure(
-                workDataOf(
-                    KEY_PROGRESS_STATE to STATE_ERROR,
-                    KEY_PROGRESS_ERROR to errorMessage,
-                ),
-            )
+            cleanupPartialImport(importedDictionaryId)
+            Result.failure()
         } finally {
             runCatching { tempFile?.delete() }
         }
     }
 
     private suspend fun downloadRemoteArchive(url: String): File = withContext(Dispatchers.IO) {
-        setProgress(workDataOf(KEY_PROGRESS_STATE to STATE_DOWNLOADING))
-
         val downloadsDir = File(context.cacheDir, "dictionary_downloads").apply { mkdirs() }
         val destination = File(downloadsDir, "dictionary_${System.currentTimeMillis()}.zip")
 
@@ -182,8 +127,6 @@ class DictionaryImportJob(
             throw DictionaryImportException("Invalid dictionary file")
         }
 
-        setProgress(workDataOf(KEY_PROGRESS_STATE to STATE_PARSING))
-
         val cacheDir = File(context.cacheDir, "dictionary_imports").apply { mkdirs() }
         val destination = File(cacheDir, "dictionary_${System.currentTimeMillis()}.zip")
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -199,12 +142,6 @@ class DictionaryImportJob(
         reader: ArchiveReader,
         archiveFile: File,
     ): ImportOutcome {
-        setProgress(
-            workDataOf(
-                KEY_PROGRESS_STATE to STATE_PARSING,
-            ),
-        )
-
         val indexJson = reader.getInputStream("index.json")?.bufferedReader()?.use { it.readText() }
             ?: throw DictionaryImportException("index.json not found in dictionary archive")
 
@@ -213,13 +150,6 @@ class DictionaryImportJob(
         } catch (e: Exception) {
             throw DictionaryParseException("Failed to parse index.json", e)
         }
-
-        setProgress(
-            workDataOf(
-                KEY_PROGRESS_STATE to STATE_PARSING,
-                KEY_PROGRESS_DICTIONARY_TITLE to index.title,
-            ),
-        )
 
         if (dictionaryInteractor.isDictionaryAlreadyImported(index.title, index.revision)) {
             throw DictionaryImportException("already_imported")
@@ -232,15 +162,6 @@ class DictionaryImportJob(
             styles = styles,
             backend = DictionaryBackend.HOSHI,
             storageReady = false,
-        )
-
-        val storageParent = dictionaryStorageGateway.getDictionaryStorageParent(dictionaryId)
-
-        setProgress(
-            workDataOf(
-                KEY_PROGRESS_STATE to STATE_IMPORTING,
-                KEY_PROGRESS_DICTIONARY_TITLE to index.title,
-            ),
         )
 
         val dictionary = Dictionary(
@@ -271,28 +192,19 @@ class DictionaryImportJob(
             ),
         )
 
-        dictionaryStorageGateway.markDirty()
-        dictionaryStorageGateway.rebuildSession()
+        dictionaryStorageGateway.refreshSearchSession()
 
         return ImportOutcome(
             dictionaryId = dictionaryId,
             title = index.title,
-            storageParent = storageParent,
         )
     }
 
-    private fun cleanupPartialImport(dictionaryId: Long?, storageParent: File?) {
+    private suspend fun cleanupPartialImport(dictionaryId: Long?) {
         if (dictionaryId != null) {
-            runCatching {
-                runBlocking {
-                    dictionaryInteractor.deleteDictionary(dictionaryId)
-                }
-            }
+            runCatching { dictionaryInteractor.deleteDictionary(dictionaryId) }
+            runCatching { dictionaryStorageGateway.clearDictionaryStorage(dictionaryId) }
         }
-        storageParent?.let { parent ->
-            runCatching { parent.deleteRecursively() }
-        }
-        dictionaryStorageGateway.markDirty()
     }
 
     private fun getDownloadErrorMessage(e: TrustedFileDownloader.TrustedDownloadException): String {
@@ -316,16 +228,6 @@ class DictionaryImportJob(
 
         const val KEY_URI = "uri"
         const val KEY_URL = "url"
-
-        const val KEY_PROGRESS_STATE = "progress_state"
-        const val KEY_PROGRESS_DICTIONARY_TITLE = "progress_dictionary_title"
-        const val KEY_PROGRESS_ERROR = "progress_error"
-
-        const val STATE_DOWNLOADING = "downloading"
-        const val STATE_PARSING = "parsing"
-        const val STATE_IMPORTING = "importing"
-        const val STATE_COMPLETE = "complete"
-        const val STATE_ERROR = "error"
 
         val TRUSTED_DICTIONARY_HOSTS = setOf(
             "github.com",
@@ -383,6 +285,5 @@ class DictionaryImportJob(
     private data class ImportOutcome(
         val dictionaryId: Long,
         val title: String,
-        val storageParent: File,
     )
 }

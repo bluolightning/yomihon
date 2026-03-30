@@ -5,7 +5,7 @@ import android.net.Uri
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
-import eu.kanade.tachiyomi.data.dictionary.DictionaryImportJob
+import eu.kanade.tachiyomi.data.dictionary.DictionaryImportCoordinator
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
@@ -24,7 +24,7 @@ import uy.kohesive.injekt.api.get
 class DictionarySettingsScreenModel(
     private val dictionaryInteractor: DictionaryInteractor = Injekt.get(),
     private val dictionaryRepository: DictionaryRepository = Injekt.get(),
-    private val application: android.app.Application = Injekt.get(),
+    private val dictionaryImportCoordinator: DictionaryImportCoordinator = Injekt.get(),
 ) : StateScreenModel<DictionarySettingsScreenModel.State>(State()) {
 
     init {
@@ -32,7 +32,7 @@ class DictionarySettingsScreenModel(
         observeMigrationStatuses()
 
         screenModelScope.launch {
-            DictionaryImportJob.isRunningFlow(application)
+            dictionaryImportCoordinator.isRunningFlow()
                 .collectLatest { isRunning ->
                     mutableState.update {
                         it.copy(
@@ -72,12 +72,12 @@ class DictionarySettingsScreenModel(
         }
     }
 
-    fun importDictionaryFromUri(context: Context, uri: Uri) {
-        DictionaryImportJob.start(context, uri)
+    fun importDictionaryFromUri(uri: Uri) {
+        dictionaryImportCoordinator.startFromUri(uri)
     }
 
-    fun importDictionaryFromUrl(context: Context, url: String) {
-        DictionaryImportJob.start(context, url)
+    fun importDictionaryFromUrl(url: String) {
+        dictionaryImportCoordinator.startFromUrl(url)
     }
 
     fun updateDictionary(context: Context, dictionary: Dictionary) {

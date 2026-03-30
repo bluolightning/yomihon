@@ -4,7 +4,6 @@ import android.app.Application
 import de.manhhao.hoshi.HoshiDicts
 import de.manhhao.hoshi.LookupResult
 import de.manhhao.hoshi.TermResult
-import java.io.ByteArrayInputStream
 import java.io.File
 import java.text.Normalizer
 import java.util.concurrent.atomic.AtomicBoolean
@@ -19,6 +18,7 @@ import mihon.domain.dictionary.model.DictionaryTermMeta
 import mihon.domain.dictionary.model.GlossaryEntry
 import mihon.domain.dictionary.model.TermMetaMode
 import mihon.domain.dictionary.repository.DictionaryRepository
+import mihon.domain.dictionary.service.DictionaryParser
 import mihon.domain.dictionary.service.DictionaryStorageGateway
 import mihon.domain.dictionary.service.DictionaryStorageImportOutcome
 import mihon.domain.dictionary.service.DictionaryLookupMatch
@@ -28,7 +28,7 @@ import mihon.domain.dictionary.service.DictionarySearchEntry
 class HoshiDictionaryStore(
     private val application: Application,
     private val dictionaryRepository: DictionaryRepository,
-    private val dictionaryParser: DictionaryParserImpl = DictionaryParserImpl(),
+    private val dictionaryParser: DictionaryParser,
 ) : DictionarySearchBackend, DictionaryStorageGateway {
 
     private val hoshi = HoshiDicts()
@@ -38,24 +38,21 @@ class HoshiDictionaryStore(
     @Volatile
     private var sessionState: SessionState? = null
 
-    override suspend fun rebuildSession() {
+    override suspend fun refreshSearchSession() {
+        dirty.set(true)
         rebuildInternal(force = true)
     }
 
-    override fun markDirty() {
-        dirty.set(true)
-    }
-
-    override fun getDictionaryStorageParent(dictionaryId: Long): File {
+    private fun getDictionaryStorageParent(dictionaryId: Long): File {
         return File(application.filesDir, "dictionaries/hoshi/$dictionaryId").apply { mkdirs() }
     }
 
     override suspend fun importDictionary(
-        zipPath: String,
+        archivePath: String,
         dictionary: Dictionary,
     ): DictionaryStorageImportOutcome = withContext(Dispatchers.IO) {
         val parent = getDictionaryStorageParent(dictionary.id)
-        val result = hoshi.importDictionary(zipPath, parent.absolutePath)
+        val result = hoshi.importDictionary(archivePath, parent.absolutePath)
         val finalDir = parent.listFiles()?.firstOrNull { File(it, ".hoshidicts_1").exists() }
         DictionaryStorageImportOutcome(
             success = result.success,
@@ -81,6 +78,13 @@ class HoshiDictionaryStore(
         } finally {
             hoshi.destroyLookupObject(handle)
         }
+    }
+
+    override suspend fun clearDictionaryStorage(dictionaryId: Long) {
+        withContext(Dispatchers.IO) {
+            getDictionaryStorageParent(dictionaryId).deleteRecursively()
+        }
+        dirty.set(true)
     }
 
     override suspend fun exactSearch(
@@ -309,15 +313,8 @@ class HoshiDictionaryStore(
     private fun parseGlossary(rawGlossary: String): List<GlossaryEntry> {
         if (rawGlossary.isBlank()) return emptyList()
 
-        val fakeBank = """[["expr","read",null,"",0,$rawGlossary,0,null]]"""
-        return dictionaryParser
-            .parseTermBank(
-                stream = ByteArrayInputStream(fakeBank.toByteArray(Charsets.UTF_8)),
-                version = 3,
-            )
-            .firstOrNull()
-            ?.glossary
-            .orEmpty()
+        return runCatching { dictionaryParser.parseGlossary(rawGlossary) }
+            .getOrDefault(emptyList())
     }
 
     private fun syntheticTermId(

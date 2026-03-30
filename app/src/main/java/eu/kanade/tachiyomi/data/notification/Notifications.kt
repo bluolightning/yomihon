@@ -65,13 +65,19 @@ object Notifications {
     const val ID_INCOGNITO_MODE = -701
 
     /**
-     * Notification channel and ids used for dictionary import.
+     * Notification channel and ids used for dictionary migration.
      */
     private const val GROUP_DICTIONARY = "group_dictionary"
     const val CHANNEL_DICTIONARY_PROGRESS = "dictionary_progress_channel"
-    const val ID_DICTIONARY_IMPORT_PROGRESS = -801
+    const val ID_DICTIONARY_MIGRATION_PROGRESS = -801
     const val CHANNEL_DICTIONARY_COMPLETE = "dictionary_complete_channel"
-    const val ID_DICTIONARY_IMPORT_COMPLETE = -802
+    const val ID_DICTIONARY_MIGRATION_COMPLETE = -802
+
+    @Deprecated("Use ID_DICTIONARY_MIGRATION_PROGRESS")
+    const val ID_DICTIONARY_IMPORT_PROGRESS = ID_DICTIONARY_MIGRATION_PROGRESS
+
+    @Deprecated("Use ID_DICTIONARY_MIGRATION_COMPLETE")
+    const val ID_DICTIONARY_IMPORT_COMPLETE = ID_DICTIONARY_MIGRATION_COMPLETE
 
     /**
      * Notification channel and ids used by OCR scanning.
