@@ -114,7 +114,13 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
         )
         recycler.tapListener = { event ->
             val child = recycler.findChildViewUnder(event.x, event.y) as? ReaderPageImageView
-            if (child?.tryConsumeOcrTap(event.rawX, event.rawY) != true) {
+            val consumedOcrTap = child?.let {
+                // Webtoon can be scaled/translated; use recycler-local coordinates for stable hit-testing.
+                val localX = event.x - it.x
+                val localY = event.y - it.y
+                it.tryConsumeOcrTapLocal(localX, localY)
+            } == true
+            if (!consumedOcrTap) {
                 val viewPosition = IntArray(2)
                 recycler.getLocationOnScreen(viewPosition)
                 val viewPositionRelativeToWindow = IntArray(2)

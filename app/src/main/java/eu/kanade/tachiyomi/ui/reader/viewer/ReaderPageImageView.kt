@@ -429,9 +429,13 @@ open class ReaderPageImageView @JvmOverloads constructor(
     }
 
     fun tryConsumeOcrTap(rawX: Float, rawY: Float): Boolean {
-        val result = cachedOcrResult ?: return false
         val localPoint = rawPointToLocalPoint(rawX, rawY) ?: return false
-        val sourcePoint = localPointToSourcePoint(localPoint.x, localPoint.y) ?: return false
+        return tryConsumeOcrTapLocal(localPoint.x, localPoint.y)
+    }
+
+    fun tryConsumeOcrTapLocal(localX: Float, localY: Float): Boolean {
+        val result = cachedOcrResult ?: return false
+        val sourcePoint = localPointToSourcePoint(localX, localY) ?: return false
         val region = result.findRegionAt(sourcePoint.x, sourcePoint.y) ?: return false
 
         onOcrRegionClicked?.invoke(region.text)
