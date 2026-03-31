@@ -41,13 +41,13 @@ SELECT _id, chapter_id, page_index, ocr_model, image_width, image_height, create
 FROM ocr_pages
 WHERE chapter_id = :chapterId
 AND page_index = :pageIndex
-AND ocr_model = :ocrModel;
+ORDER BY created_at DESC, _id DESC
+LIMIT 1;
 
 getCachedChapterIds:
 SELECT DISTINCT chapter_id
 FROM ocr_pages
-WHERE chapter_id IN ?
-AND ocr_model = :ocrModel;
+WHERE chapter_id IN ?;
 
 getRegionsForPage:
 SELECT _id, page_id, region_order, left_norm, top_norm, right_norm, bottom_norm, text
@@ -57,8 +57,7 @@ ORDER BY region_order;
 
 deleteChapterPages:
 DELETE FROM ocr_pages
-WHERE chapter_id = :chapterId
-AND ocr_model = :ocrModel;
+WHERE chapter_id = :chapterId;
 
 deleteAllRegions:
 DELETE FROM ocr_regions;

@@ -230,19 +230,17 @@ class OcrRepositoryImpl(
         return cacheStore.getPage(
             chapterId = chapterId,
             pageIndex = pageIndex,
-            ocrModel = ocrModelPref.get(),
         )
     }
 
     override suspend fun getCachedChapterIds(chapterIds: Collection<Long>): Set<Long> {
         return cacheStore.getCachedChapterIds(
             chapterIds = chapterIds,
-            ocrModel = ocrModelPref.get(),
         )
     }
 
     override suspend fun clearCachedChapter(chapterId: Long) {
-        cacheStore.clearChapter(chapterId, ocrModelPref.get())
+        cacheStore.clearChapter(chapterId)
     }
 
     override suspend fun clearCache() {

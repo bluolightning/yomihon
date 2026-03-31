@@ -52,14 +52,12 @@ internal class OcrCacheStore(
     suspend fun getPage(
         chapterId: Long,
         pageIndex: Int,
-        ocrModel: OcrModel,
     ): OcrPageResult? {
         return mutex.withLock {
             val db = getDatabase()
             val page = db.ocr_cacheQueries.getPage(
                 chapterId = chapterId,
                 pageIndex = pageIndex.toLong(),
-                ocrModel = ocrModel.name,
             ) { _id, _chapterId, _pageIndex, _ocrModel, imageWidth, imageHeight, _createdAt ->
                 OcrPageRow(
                     id = _id,
@@ -111,7 +109,6 @@ internal class OcrCacheStore(
 
     suspend fun getCachedChapterIds(
         chapterIds: Collection<Long>,
-        ocrModel: OcrModel,
     ): Set<Long> {
         if (chapterIds.isEmpty()) {
             return emptySet()
@@ -121,20 +118,17 @@ internal class OcrCacheStore(
             val db = getDatabase()
             db.ocr_cacheQueries.getCachedChapterIds(
                 chapter_id = chapterIds.toList(),
-                ocrModel = ocrModel.name,
             ).executeAsList().toSet()
         }
     }
 
     suspend fun clearChapter(
         chapterId: Long,
-        ocrModel: OcrModel,
     ) {
         mutex.withLock {
             val db = getDatabase()
             db.ocr_cacheQueries.deleteChapterPages(
                 chapterId = chapterId,
-                ocrModel = ocrModel.name,
             )
         }
     }
