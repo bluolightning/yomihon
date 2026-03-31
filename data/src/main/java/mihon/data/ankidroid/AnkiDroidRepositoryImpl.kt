@@ -158,7 +158,7 @@ class AnkiDroidRepositoryImpl(
             val appField = fieldMappings[noteField]
             if (appField == "picture") {
                 if (pictureFilename != null) {
-                    "<img src=\"$pictureFilename\">"
+                    "<img src=\"$pictureFilename\" style=\"margin-top: 16px;\">"
                 } else {
                     ""
                 }
