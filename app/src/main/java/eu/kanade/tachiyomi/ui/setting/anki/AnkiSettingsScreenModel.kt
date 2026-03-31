@@ -52,11 +52,11 @@ class AnkiSettingsScreenModel(
 
                 // Load dictionaries for dictionary-specific labels
                 val dictionaries = dictionaryInteractor.getAllDictionaries()
-                val freqDictionaryIds = dictionaryInteractor.getFreqDictionaryIds()
+                val freqDictionaryIds = dictionaryInteractor.getFreqDictionaryIds().toSet()
                 mutableState.update {
                     it.copy(
                         dictionaries = dictionaries,
-                        freqDictionaryIds = freqDictionaryIds.toSet(),
+                        freqDictionaryIds = freqDictionaryIds,
                     )
                 }
             } catch (e: Exception) {

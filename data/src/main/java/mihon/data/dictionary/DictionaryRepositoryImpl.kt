@@ -1,6 +1,9 @@
 package mihon.data.dictionary
 
+import de.manhhao.hoshi.HoshiDicts
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryMigrationStage
 import mihon.domain.dictionary.model.DictionaryMigrationState
@@ -22,6 +25,8 @@ import tachiyomi.data.DatabaseHandler
 class DictionaryRepositoryImpl(
     private val handler: DatabaseHandler,
 ) : DictionaryRepository, DictionaryLegacyRepository, DictionaryMigrationStatusRepository {
+
+    private val hoshi by lazy { HoshiDicts() }
 
     // Dictionary operations
 
@@ -117,9 +122,40 @@ class DictionaryRepositoryImpl(
     }
 
     override suspend fun getFreqDictionaryIds(): List<Long> {
-        return handler.awaitList {
+        val freqDictionaryIds = handler.awaitList {
             dictionaryQueries.getFreqDictionaryIds()
+        }.toMutableSet()
+
+        val dictionaries = getAllDictionaries()
+        val hoshiFrequencyIds = withContext(Dispatchers.IO) {
+            dictionaries
+                .asSequence()
+                .filter {
+                    it.backend == DictionaryBackend.HOSHI &&
+                        it.isEnabled &&
+                        it.storageReady &&
+                        !it.storagePath.isNullOrBlank()
+                }
+                .mapNotNull { dictionary ->
+                    val storagePath = dictionary.storagePath ?: return@mapNotNull null
+                    dictionary.id.takeIf {
+                        hasAtLeastFreqEntries(storagePath)
+                    }
+                }
+                .toSet()
         }
+
+        freqDictionaryIds += hoshiFrequencyIds
+        return freqDictionaryIds.toList()
+    }
+
+    private fun hasAtLeastFreqEntries(storagePath: String, minFreqEntryCount: Int = MIN_FREQ_ENTRY_COUNT): Boolean {
+        if (storagePath.isBlank()) return false
+        if (minFreqEntryCount <= 0) return true
+
+        return runCatching {
+            hoshi.hasMetaModeEntries(storagePath, FREQ_MODE, minFreqEntryCount)
+        }.getOrDefault(false)
     }
 
     override suspend fun updateDictionaryStorage(
@@ -451,5 +487,10 @@ class DictionaryRepositoryImpl(
             lastError = lastError,
             updatedAt = updatedAt,
         )
+    }
+
+    private companion object {
+        const val FREQ_MODE = "freq"
+        const val MIN_FREQ_ENTRY_COUNT = 5
     }
 }
