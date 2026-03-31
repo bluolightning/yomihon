@@ -110,7 +110,7 @@ fun MoreScreen(
             item {
                 val ocrQueueState = ocrQueueStateProvider()
                 TextPreferenceWidget(
-                    title = stringResource(MR.strings.label_ocr),
+                    title = stringResource(MR.strings.label_text_recognition),
                     subtitle = when (ocrQueueState) {
                         OcrQueueState.Stopped -> null
                         is OcrQueueState.Paused -> {

@@ -441,8 +441,7 @@
     <string name="pref_read_with_long_tap">Show actions on long tap</string>
     <string name="pref_long_tap_ocr">Activate OCR on long tap</string>
     <string name="pref_long_tap_ocr_summary">Overrides default long tap action</string>
-    <string name="pref_ocr_model">OCR model</string>
-    <string name="pref_ocr_model_summary">Select the OCR model to use</string>
+    <string name="pref_ocr_model">Text recognition model</string>
     <string name="ocr_model_legacy">Legacy</string>
     <string name="ocr_model_fast">Fast (Experimental)</string>
     <string name="ocr_model_glens">Online</string>
@@ -995,7 +994,7 @@
 
     <!-- Notification channels -->
     <string name="channel_common">Common</string>
-    <string name="label_ocr">OCR</string>
+    <string name="label_text_recognition">Text Recognition</string>
     <string name="channel_progress">Progress</string>
     <string name="channel_complete">Complete</string>
     <string name="channel_errors">Errors</string>
@@ -1176,6 +1175,8 @@
     <string name="action_copy">Copy</string>
     <string name="ocr_select_region">Drag to select text region</string>
     <string name="ocr_processing">Processing OCR…</string>
+    <string name="ocr_queue_header">Text recognition queue</string>
+    <string name="ocr_queue_empty">No OCR scans</string>
     <string name="ocr_preprocess_title">OCR scanning</string>
     <string name="ocr_preprocess_queued">Queued</string>
     <string name="ocr_preprocess_progress">%1$s - %2$d/%3$d pages scanned</string>

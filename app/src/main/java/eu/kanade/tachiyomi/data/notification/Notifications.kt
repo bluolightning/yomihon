@@ -136,7 +136,7 @@ object Notifications {
                     setName(context.stringResource(MR.strings.pref_category_dictionaries))
                 },
                 buildNotificationChannelGroup(GROUP_OCR) {
-                    setName(context.stringResource(MR.strings.label_ocr))
+                    setName(context.stringResource(MR.strings.label_text_recognition))
                 },
             ),
         )

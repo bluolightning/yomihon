@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -102,7 +101,7 @@ object OcrQueueScreen : Screen() {
                     titleContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = stringResource(MR.strings.label_ocr),
+                                text = stringResource(MR.strings.label_text_recognition),
                                 maxLines = 1,
                                 modifier = Modifier.weight(1f, false),
                                 overflow = TextOverflow.Ellipsis,
@@ -177,8 +176,8 @@ object OcrQueueScreen : Screen() {
                 ListPreferenceWidget(
                     value = ocrModel,
                     title = stringResource(MR.strings.pref_ocr_model),
-                    subtitle = "${stringResource(ocrModel.titleRes)} • ${stringResource(MR.strings.pref_ocr_model_summary)}",
-                    icon = Icons.Outlined.DocumentScanner,
+                    subtitle = stringResource(ocrModel.titleRes),
+                    icon = null,
                     entries = mapOf(
                         OcrModel.LEGACY to stringResource(OcrModel.LEGACY.titleRes),
                         OcrModel.FAST to stringResource(OcrModel.FAST.titleRes),
@@ -187,7 +186,7 @@ object OcrQueueScreen : Screen() {
                     onValueChange = ocrModelPreference::set,
                 )
 
-                PreferenceGroupHeader(title = stringResource(MR.strings.ocr_preprocess_title))
+                PreferenceGroupHeader(title = stringResource(MR.strings.ocr_queue_header))
 
                 Box(
                     modifier = Modifier
@@ -196,7 +195,7 @@ object OcrQueueScreen : Screen() {
                 ) {
                     if (!hasQueue) {
                         EmptyScreen(
-                            message = stringResource(MR.strings.ocr_preprocess_title),
+                            message = stringResource(MR.strings.ocr_queue_empty),
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
