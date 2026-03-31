@@ -15,9 +15,9 @@ import eu.kanade.tachiyomi.util.system.cancelNotification
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import eu.kanade.tachiyomi.util.system.workManager
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
@@ -36,7 +36,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import kotlin.coroutines.coroutineContext
+import java.io.File
 
 class DictionaryMigrationJob(
     private val context: Context,
@@ -83,7 +83,7 @@ class DictionaryMigrationJob(
             var completed = dictionaries.count { statusesById[it.id]?.state == DictionaryMigrationState.COMPLETE }
 
             dictionaries.forEach { dictionary ->
-                coroutineContext.ensureActive()
+                currentCoroutineContext().ensureActive()
 
                 val existingStatus = statusesById[dictionary.id]
                 if (existingStatus?.state == DictionaryMigrationState.COMPLETE) {
@@ -127,7 +127,8 @@ class DictionaryMigrationJob(
         }
     }
 
-    private suspend fun loadPendingDictionariesWithStatuses(): Pair<List<Dictionary>, Map<Long, DictionaryMigrationStatus>> {
+    private suspend fun loadPendingDictionariesWithStatuses():
+        Pair<List<Dictionary>, Map<Long, DictionaryMigrationStatus>> {
         val statusesByDictionaryId = migrationStatusRepository.getAllMigrationStatuses()
             .associateBy { it.dictionaryId }
 
@@ -140,8 +141,9 @@ class DictionaryMigrationJob(
                 dictionary.backend == DictionaryBackend.LEGACY_DB ->
                     status?.state != DictionaryMigrationState.ERROR
                 status == null -> false
-                else -> status.state != DictionaryMigrationState.COMPLETE &&
-                    status.state != DictionaryMigrationState.ERROR
+                else ->
+                    status.state != DictionaryMigrationState.COMPLETE &&
+                        status.state != DictionaryMigrationState.ERROR
             }
         }
 
@@ -325,11 +327,21 @@ class DictionaryMigrationJob(
     private fun stageDisplayName(stage: DictionaryMigrationStage): String {
         return when (stage) {
             DictionaryMigrationStage.QUEUED -> context.stringResource(MR.strings.dictionary_migration_stage_queued)
-            DictionaryMigrationStage.BUILDING_ARCHIVE -> context.stringResource(MR.strings.dictionary_migration_stage_building_archive)
-            DictionaryMigrationStage.IMPORTING -> context.stringResource(MR.strings.dictionary_migration_stage_importing)
-            DictionaryMigrationStage.VALIDATING -> context.stringResource(MR.strings.dictionary_migration_stage_validating)
-            DictionaryMigrationStage.REBUILDING_SESSION -> context.stringResource(MR.strings.dictionary_migration_stage_rebuilding_session)
-            DictionaryMigrationStage.CLEANING_UP -> context.stringResource(MR.strings.dictionary_migration_stage_cleaning_up)
+            DictionaryMigrationStage.BUILDING_ARCHIVE -> context.stringResource(
+                MR.strings.dictionary_migration_stage_building_archive,
+            )
+            DictionaryMigrationStage.IMPORTING -> context.stringResource(
+                MR.strings.dictionary_migration_stage_importing,
+            )
+            DictionaryMigrationStage.VALIDATING -> context.stringResource(
+                MR.strings.dictionary_migration_stage_validating,
+            )
+            DictionaryMigrationStage.REBUILDING_SESSION -> context.stringResource(
+                MR.strings.dictionary_migration_stage_rebuilding_session,
+            )
+            DictionaryMigrationStage.CLEANING_UP -> context.stringResource(
+                MR.strings.dictionary_migration_stage_cleaning_up,
+            )
             DictionaryMigrationStage.COMPLETE -> context.stringResource(MR.strings.dictionary_migration_stage_complete)
             DictionaryMigrationStage.ERROR -> context.stringResource(MR.strings.dictionary_migration_stage_error)
         }

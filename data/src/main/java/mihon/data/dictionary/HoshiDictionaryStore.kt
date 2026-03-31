@@ -4,9 +4,6 @@ import android.app.Application
 import de.manhhao.hoshi.HoshiDicts
 import de.manhhao.hoshi.LookupResult
 import de.manhhao.hoshi.TermResult
-import java.io.File
-import java.text.Normalizer
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,12 +18,15 @@ import mihon.domain.dictionary.model.DictionaryTermMeta
 import mihon.domain.dictionary.model.GlossaryEntry
 import mihon.domain.dictionary.model.TermMetaMode
 import mihon.domain.dictionary.repository.DictionaryRepository
-import mihon.domain.dictionary.service.DictionaryParser
-import mihon.domain.dictionary.service.DictionaryStorageGateway
-import mihon.domain.dictionary.service.DictionaryStorageImportOutcome
 import mihon.domain.dictionary.service.DictionaryLookupMatch
+import mihon.domain.dictionary.service.DictionaryParser
 import mihon.domain.dictionary.service.DictionarySearchBackend
 import mihon.domain.dictionary.service.DictionarySearchEntry
+import mihon.domain.dictionary.service.DictionaryStorageGateway
+import mihon.domain.dictionary.service.DictionaryStorageImportOutcome
+import java.io.File
+import java.text.Normalizer
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HoshiDictionaryStore(
     private val application: Application,
@@ -338,15 +338,18 @@ class HoshiDictionaryStore(
     private fun pitchMetaJson(reading: String, positions: List<Int>): String {
         return buildJsonObject {
             put("reading", reading)
-            put("pitches", buildJsonArray {
-                positions.forEach { position ->
-                    add(
-                        buildJsonObject {
-                            put("position", position)
-                        },
-                    )
-                }
-            })
+            put(
+                "pitches",
+                buildJsonArray {
+                    positions.forEach { position ->
+                        add(
+                            buildJsonObject {
+                                put("position", position)
+                            },
+                        )
+                    }
+                },
+            )
         }.toString()
     }
 

@@ -9,8 +9,16 @@ import mihon.domain.dictionary.model.DictionaryTermMetaExport
 interface DictionaryLegacyRepository {
     suspend fun getTermsExportForDictionary(dictionaryId: Long, limit: Long, offset: Long): List<DictionaryTermExport>
     suspend fun getKanjiExportForDictionary(dictionaryId: Long, limit: Long, offset: Long): List<DictionaryKanjiExport>
-    suspend fun getTermMetaExportForDictionary(dictionaryId: Long, limit: Long, offset: Long): List<DictionaryTermMetaExport>
-    suspend fun getKanjiMetaExportForDictionary(dictionaryId: Long, limit: Long, offset: Long): List<DictionaryKanjiMetaExport>
+    suspend fun getTermMetaExportForDictionary(
+        dictionaryId: Long,
+        limit: Long,
+        offset: Long,
+    ): List<DictionaryTermMetaExport>
+    suspend fun getKanjiMetaExportForDictionary(
+        dictionaryId: Long,
+        limit: Long,
+        offset: Long,
+    ): List<DictionaryKanjiMetaExport>
     suspend fun getLegacyRowCounts(dictionaryId: Long): DictionaryLegacyRowCounts
     suspend fun deleteTagsForDictionary(dictionaryId: Long)
     suspend fun deleteTermsForDictionary(dictionaryId: Long)

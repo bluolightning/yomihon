@@ -1,10 +1,7 @@
 package mihon.data.dictionary
 
-import java.io.File
-import java.io.OutputStreamWriter
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -15,18 +12,20 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import mihon.domain.dictionary.model.Dictionary
+import mihon.domain.dictionary.model.DictionaryTag
 import mihon.domain.dictionary.model.GlossaryEntry
 import mihon.domain.dictionary.model.GlossaryNode
 import mihon.domain.dictionary.model.GlossaryTag
-import mihon.domain.dictionary.model.DictionaryTag
 import mihon.domain.dictionary.repository.DictionaryLegacyRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.DictionaryArchiveBuildResult
 import mihon.domain.dictionary.service.DictionaryArchiveBuilder
 import mihon.domain.dictionary.service.DictionaryArchiveProgress
-import kotlin.coroutines.coroutineContext
+import java.io.File
+import java.io.OutputStreamWriter
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class LegacyDictionaryArchiveBuilder(
     private val dictionaryRepository: DictionaryRepository,
@@ -84,7 +83,7 @@ class LegacyDictionaryArchiveBuilder(
         DictionaryArchiveBuildResult(
             archivePath = destination.absolutePath,
             sampleExpression = sampleExpression,
-            tagCount = tagCount.toLong(),
+            tagCount = tagCount,
             termCount = termCount,
             termMetaCount = termMetaCount,
             kanjiCount = kanjiCount,
@@ -120,7 +119,7 @@ class LegacyDictionaryArchiveBuilder(
         putJsonEntry(zip, "tag_bank_1.json") { writer ->
             writer.beginArray()
             tags.forEach { tag ->
-                coroutineContext.ensureActive()
+                currentCoroutineContext().ensureActive()
                 writer.beginArray()
                 writer.value(tag.name)
                 writer.value(tag.category)
@@ -146,17 +145,21 @@ class LegacyDictionaryArchiveBuilder(
         var sampleExpression: String? = null
 
         while (offset < totalCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getTermsExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getTermsExportForDictionary(
+                dictionary.id,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
             if (sampleExpression == null) {
                 sampleExpression = page.first().expression
             }
 
-            putJsonEntry(zip, "term_bank_${bankIndex}.json") { writer ->
+            putJsonEntry(zip, "term_bank_$bankIndex.json") { writer ->
                 writer.beginArray()
                 page.forEach { term ->
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                     writer.beginArray()
                     writer.value(term.expression)
                     writer.value(term.reading)
@@ -197,14 +200,18 @@ class LegacyDictionaryArchiveBuilder(
         var bankIndex = 1
         var offset = 0L
         while (offset < totalCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(
+                dictionary.id,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
 
-            putJsonEntry(zip, "term_meta_bank_${bankIndex}.json") { writer ->
+            putJsonEntry(zip, "term_meta_bank_$bankIndex.json") { writer ->
                 writer.beginArray()
                 page.forEach { meta ->
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                     writer.beginArray()
                     writer.value(meta.expression)
                     writer.value(meta.mode)
@@ -238,14 +245,18 @@ class LegacyDictionaryArchiveBuilder(
         var bankIndex = 1
         var offset = 0L
         while (offset < totalCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getKanjiExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getKanjiExportForDictionary(
+                dictionary.id,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
 
-            putJsonEntry(zip, "kanji_bank_${bankIndex}.json") { writer ->
+            putJsonEntry(zip, "kanji_bank_$bankIndex.json") { writer ->
                 writer.beginArray()
                 page.forEach { kanji ->
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                     writeKanji(writer, kanji)
                 }
                 writer.endArray()
@@ -275,14 +286,18 @@ class LegacyDictionaryArchiveBuilder(
         var bankIndex = 1
         var offset = 0L
         while (offset < totalCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getKanjiMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getKanjiMetaExportForDictionary(
+                dictionary.id,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
 
-            putJsonEntry(zip, "kanji_meta_bank_${bankIndex}.json") { writer ->
+            putJsonEntry(zip, "kanji_meta_bank_$bankIndex.json") { writer ->
                 writer.beginArray()
                 page.forEach { meta ->
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                     writer.beginArray()
                     writer.value(meta.character)
                     writer.value(meta.mode)
@@ -305,7 +320,7 @@ class LegacyDictionaryArchiveBuilder(
         }
     }
 
-    private suspend fun writeKanji(writer: SimpleJsonWriter, kanji: mihon.domain.dictionary.model.DictionaryKanjiExport) {
+    private fun writeKanji(writer: SimpleJsonWriter, kanji: mihon.domain.dictionary.model.DictionaryKanjiExport) {
         writer.beginArray()
         writer.value(kanji.character)
         writer.value(kanji.onyomi)
@@ -330,12 +345,16 @@ class LegacyDictionaryArchiveBuilder(
         name: String,
         block: suspend (SimpleJsonWriter) -> Unit,
     ) {
-        coroutineContext.ensureActive()
-        zip.putNextEntry(ZipEntry(name))
+        currentCoroutineContext().ensureActive()
+        withContext(Dispatchers.IO) {
+            zip.putNextEntry(ZipEntry(name))
+        }
         val writer = SimpleJsonWriter(OutputStreamWriter(zip, Charsets.UTF_8))
         block(writer)
         writer.flush()
-        zip.closeEntry()
+        withContext(Dispatchers.IO) {
+            zip.closeEntry()
+        }
     }
 
     private fun writeTextEntry(zip: ZipOutputStream, name: String, content: String) {
@@ -483,8 +502,12 @@ class LegacyDictionaryArchiveBuilder(
 
         var offset = 0L
         while (offset < totalTermCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getTermsExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getTermsExportForDictionary(
+                dictionaryId,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
             if (page.any { it.sequence != null }) {
                 return true
@@ -500,8 +523,12 @@ class LegacyDictionaryArchiveBuilder(
 
         var offset = 0L
         while (offset < totalTermMetaCount) {
-            coroutineContext.ensureActive()
-            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
+            currentCoroutineContext().ensureActive()
+            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(
+                dictionaryId,
+                BANK_PAGE_SIZE,
+                offset,
+            )
             if (page.isEmpty()) break
 
             if (page.any { it.mode.equals("freq", ignoreCase = true) }) {

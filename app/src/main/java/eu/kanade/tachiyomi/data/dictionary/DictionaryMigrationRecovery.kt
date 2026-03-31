@@ -3,8 +3,8 @@ package eu.kanade.tachiyomi.data.dictionary
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryLegacyRowCounts
-import mihon.domain.dictionary.model.DictionaryMigrationStatus
 import mihon.domain.dictionary.model.DictionaryMigrationState
+import mihon.domain.dictionary.model.DictionaryMigrationStatus
 
 internal enum class DictionaryMigrationResumeAction {
     MIGRATE_FROM_LEGACY,

@@ -4,8 +4,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -28,7 +26,6 @@ class OcrScanManagerTest {
             ),
             fixture.manager.queueState.value.entries,
         )
-        assertEquals(1, fixture.workerController.startCalls)
     }
 
     @Test
@@ -55,7 +52,6 @@ class OcrScanManagerTest {
             ),
             fixture.manager.queueState.value.entries,
         )
-        assertEquals(1, fixture.workerController.stopCalls)
 
         fixture.manager.resume()
 
@@ -68,7 +64,6 @@ class OcrScanManagerTest {
             ),
             fixture.manager.queueState.value.entries,
         )
-        assertEquals(1, fixture.workerController.startCalls)
     }
 
     @Test
@@ -84,7 +79,6 @@ class OcrScanManagerTest {
 
         assertEquals(emptyList<OcrScanQueueEntry>(), fixture.manager.queueState.value.entries)
         assertFalse(fixture.manager.queueState.value.isPaused)
-        assertEquals(1, fixture.workerController.stopCalls)
     }
 
     @Test
@@ -142,8 +136,6 @@ class OcrScanManagerTest {
             listOf(entry(2L, OcrScanQueueEntry.State.QUEUED)),
             fixture.manager.queueState.value.entries,
         )
-        assertEquals(1, fixture.workerController.stopCalls)
-        assertEquals(1, fixture.workerController.restartCalls)
         assertNull(fixture.manager.queueState.value.activeProgress)
     }
 
@@ -231,55 +223,22 @@ class OcrScanManagerTest {
                 scanError.chapterName
             }
         }
-        val workerController = FakeWorkerController()
 
         return Fixture(
             manager = OcrScanManager(
+                context = mockk(relaxed = true),
                 store = store,
                 scanner = scanner,
                 notifier = notifier,
-                workerController = workerController,
             ),
             scanner = scanner,
-            workerController = workerController,
         )
     }
 
     private data class Fixture(
         val manager: OcrScanManager,
         val scanner: OcrChapterScanner,
-        val workerController: FakeWorkerController,
     )
-
-    private class FakeWorkerController : OcrScanWorkerController {
-        private val runningState = MutableStateFlow(false)
-
-        var startCalls = 0
-            private set
-        var restartCalls = 0
-            private set
-        var stopCalls = 0
-            private set
-
-        override fun start() {
-            startCalls++
-            runningState.value = true
-        }
-
-        override fun restart() {
-            restartCalls++
-            runningState.value = true
-        }
-
-        override fun stop() {
-            stopCalls++
-            runningState.value = false
-        }
-
-        override fun isRunningFlow(): Flow<Boolean> {
-            return runningState
-        }
-    }
 
     private fun entry(
         chapterId: Long,

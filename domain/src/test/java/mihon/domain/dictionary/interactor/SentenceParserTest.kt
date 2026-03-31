@@ -9,8 +9,8 @@ import kotlinx.coroutines.test.runTest
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryTerm
-import mihon.domain.dictionary.service.DictionaryLookupMatch
 import mihon.domain.dictionary.repository.DictionaryRepository
+import mihon.domain.dictionary.service.DictionaryLookupMatch
 import mihon.domain.dictionary.service.DictionarySearchEntry
 import mihon.domain.dictionary.service.DictionarySearchGateway
 import org.junit.jupiter.api.BeforeEach
@@ -169,15 +169,17 @@ class SentenceParserTest {
 
     @Test
     fun `handles deinflection for longest match`() = runTest {
-        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(Dictionary(
-            id = 1L,
-            title = "Japanese",
-            revision = "1",
-            version = 1,
-            sourceLanguage = "ja",
-            backend = DictionaryBackend.HOSHI,
-            storageReady = true,
-        ))
+        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(
+            Dictionary(
+                id = 1L,
+                title = "Japanese",
+                revision = "1",
+                version = 1,
+                sourceLanguage = "ja",
+                backend = DictionaryBackend.HOSHI,
+                storageReady = true,
+            ),
+        )
         coEvery { dictionarySearchGateway.lookup("食べたって言ったよ", testDictionaryIds, any()) } returns listOf(
             DictionaryLookupMatch(
                 matched = "食べた",
@@ -286,12 +288,14 @@ class SentenceParserTest {
 
     @Test
     fun `preserves English apostrophes correctly`() = runTest {
-        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(mihon.domain.dictionary.model.Dictionary(
-            title = "Test",
-            revision = "1",
-            version = 1,
-            sourceLanguage = "en",
-        ))
+        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(
+            Dictionary(
+                title = "Test",
+                revision = "1",
+                version = 1,
+                sourceLanguage = "en",
+            ),
+        )
         coEvery { dictionaryRepository.searchTerms("don't", testDictionaryIds) } returns listOf(
             mockTerm("don't"),
         )
@@ -303,12 +307,14 @@ class SentenceParserTest {
 
     @Test
     fun `segments kanji-only Japanese correctly when restricted`() = runTest {
-        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(mihon.domain.dictionary.model.Dictionary(
-            title = "Test",
-            revision = "1",
-            version = 1,
-            sourceLanguage = "ja",
-        ))
+        coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(
+            Dictionary(
+                title = "Test",
+                revision = "1",
+                version = 1,
+                sourceLanguage = "ja",
+            ),
+        )
         coEvery { dictionaryRepository.searchTerms("世界", testDictionaryIds) } returns listOf(
             mockTerm("世界", "せかい", "n"),
         )

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.data.ocr
 
+import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -17,10 +18,10 @@ import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 
 class OcrScanManager internal constructor(
+    private val context: Context,
     private val store: OcrScanStore,
     private val scanner: OcrChapterScanner,
     private val notifier: OcrScanNotifier,
-    private val workerController: OcrScanWorkerController,
 ) {
     private val mutex = Mutex()
     private val mutableQueueState = MutableStateFlow(store.snapshot().toQueueState())
@@ -29,7 +30,7 @@ class OcrScanManager internal constructor(
     internal val queueState = mutableQueueState.asStateFlow()
     internal val cacheEvents = cacheEventsFlow.asSharedFlow()
     internal val isScannerRunning: Flow<Boolean>
-        get() = workerController.isRunningFlow()
+        get() = OcrScanJob.isRunningFlow(context)
 
     val status: Flow<OcrQueueStatus>
         get() = queueState
@@ -82,7 +83,7 @@ class OcrScanManager internal constructor(
         }
 
         notifier.dismissProgress()
-        workerController.stop()
+        OcrScanJob.stop(context)
     }
 
     suspend fun resume() {
@@ -120,7 +121,7 @@ class OcrScanManager internal constructor(
         }
 
         notifier.dismissProgress()
-        workerController.stop()
+        OcrScanJob.stop(context)
     }
 
     suspend fun reorderQueue(chapterIds: List<Long>) {
@@ -181,9 +182,9 @@ class OcrScanManager internal constructor(
 
         if (result.cancelledActive) {
             notifier.dismissProgress()
-            workerController.stop()
+            OcrScanJob.stop(context)
             if (!result.isPaused && result.hasQueuedEntries) {
-                workerController.restart()
+                OcrScanJob.restart(context)
             }
             return
         }
@@ -414,7 +415,7 @@ class OcrScanManager internal constructor(
     }
 
     private fun startWorkerIfNeeded() {
-        workerController.start()
+        OcrScanJob.start(context)
     }
 
     private data class CancelResult(

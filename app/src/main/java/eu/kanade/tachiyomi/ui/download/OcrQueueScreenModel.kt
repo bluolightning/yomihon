@@ -10,10 +10,7 @@ import eu.kanade.tachiyomi.data.ocr.OcrScanManager
 import eu.kanade.tachiyomi.data.ocr.OcrScanQueueEntry
 import eu.kanade.tachiyomi.data.ocr.OcrScanQueueState
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,8 +27,13 @@ class OcrQueueScreenModel(
 
     private val ocrQueueActions: OcrQueueActions = Injekt.get()
 
-    private val _state = MutableStateFlow(OcrQueueUiState())
-    internal val state = _state.asStateFlow()
+    internal val state = ocrScanManager.queueState
+        .mapLatest(::buildOcrQueueUiState)
+        .stateIn(
+            scope = screenModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = OcrQueueUiState(),
+        )
 
     private val ocrChapterMetadataCache = mutableMapOf<Long, OcrQueueChapterMetadata>()
 
@@ -65,14 +67,6 @@ class OcrQueueScreenModel(
                     R.id.cancel_series -> handleOcrAction(item.ocrQueueItem.chapterId, OcrQueueAction.CancelSeries)
                 }
             }
-        }
-    }
-
-    init {
-        screenModelScope.launch {
-            ocrScanManager.queueState
-                .mapLatest(::buildOcrQueueUiState)
-                .collectLatest { state -> _state.value = state }
         }
     }
 
