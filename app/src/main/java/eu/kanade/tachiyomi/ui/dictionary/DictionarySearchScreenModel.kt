@@ -78,7 +78,7 @@ class DictionarySearchScreenModel(
                 }
             } catch (e: Exception) {
                 mutableState.update { it.copy(isLoading = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Failed to load dictionaries")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_load_fail)))
             }
         }
     }
@@ -96,7 +96,7 @@ class DictionarySearchScreenModel(
                 }
             } catch (e: Exception) {
                 mutableState.update { it.copy(isLoading = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Failed to load dictionaries")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_load_fail)))
             }
         }
     }
@@ -135,7 +135,7 @@ class DictionarySearchScreenModel(
             try {
                 val enabledDictionaryIds = state.value.enabledDictionaryIds
                 if (enabledDictionaryIds.isEmpty()) {
-                    _events.send(Event.ShowError(UiMessage.Text("No dictionaries enabled")))
+                    _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_no_enabled)))
                     mutableState.update { it.copy(isSearching = false, results = null) }
                     return@launch
                 }
@@ -197,7 +197,7 @@ class DictionarySearchScreenModel(
                 checkExistingNotesInBackground(items.map { it.expression }.distinct())
             } catch (e: Exception) {
                 mutableState.update { it.copy(isSearching = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Search failed")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_search_failed)))
             }
         }
     }
@@ -228,11 +228,11 @@ class DictionarySearchScreenModel(
             val sentence = if (query.isNotBlank() && query != term.expression) query else ""
 
             val termMeta = state.value.results?.termMetaMap?.get(term.expression) ?: emptyList()
-            val pitchAccentSvg = PitchAccentFormatter.formatPitchAccentSvg(termMeta)
-            val frequencyText = formatFrequencyText(termMeta)
+            val pitchAccentSvg = PitchAccentFormatter.formatPitchAccentSvg(termMeta, term.reading)
+            val frequencyText = formatFrequencyText(termMeta, term.reading)
             val pictureUrl = pictureUri?.toString() ?: ""
 
-            val frequencies = FrequencyFormatter.parseFrequencies(termMeta)
+            val frequencies = FrequencyFormatter.parseFrequencies(termMeta, term.reading)
             val numericValues = frequencies.mapNotNull { it.numericFrequency }
 
             val minValuesPerDict = frequencies
@@ -283,8 +283,8 @@ class DictionarySearchScreenModel(
         }
     }
 
-    private fun formatFrequencyText(termMeta: List<DictionaryTermMeta>): String {
-        val frequencies = FrequencyFormatter.parseFrequencies(termMeta)
+    private fun formatFrequencyText(termMeta: List<DictionaryTermMeta>, reading: String): String {
+        val frequencies = FrequencyFormatter.parseFrequencies(termMeta, reading)
         if (frequencies.isEmpty()) return ""
 
         val dictionaries = state.value.dictionaries

@@ -1,22 +1,26 @@
 package mihon.domain.dictionary.interactor
 
 import dev.esnault.wanakana.core.Wanakana
+import java.util.LinkedHashMap
+import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermMeta
+import mihon.domain.dictionary.model.partitionDictionaryIdsByBackend
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.Candidate
+import mihon.domain.dictionary.service.DictionarySearchGateway
 import mihon.domain.dictionary.service.EnglishDeinflector
 import mihon.domain.dictionary.service.InflectionType
 import mihon.domain.dictionary.service.JapaneseDeinflector
-import java.util.LinkedHashMap
 
 /**
  * Interactor for searching dictionary terms with multilingual support.
- * The parser (Japanese deinflection vs. direct lookup) is chosen automatically
+ * The parser (Japanese lookup vs. exact/direct lookup) is chosen automatically
  * by detecting the script of the query text, so no language hint is needed.
  */
 class SearchDictionaryTerms(
     private val dictionaryRepository: DictionaryRepository,
+    private val dictionarySearchGateway: DictionarySearchGateway,
 ) {
     data class FirstWordMatch(
         val word: String,
@@ -25,31 +29,40 @@ class SearchDictionaryTerms(
         val isDictionaryMatch: Boolean = false,
     )
 
-    private val dictionaryScriptCache = java.util.concurrent.ConcurrentHashMap<Long, Set<Script>>()
-
     private val punctuationCharSet: Set<Char> get() = PUNCTUATION_CHARS
 
     /** Script families used to select the right search/segmentation pipeline. */
     private enum class Script { JAPANESE, KOREAN, CHINESE, ENGLISH }
 
+    private data class SearchContext(
+        val dictionariesById: Map<Long, Dictionary>,
+        val prioritiesById: Map<Long, Int>,
+    )
+
     private fun Script.isNonCjk(): Boolean =
         this != Script.JAPANESE && this != Script.CHINESE && this != Script.KOREAN
 
-    private suspend fun getAllowedScripts(dictionaryIds: List<Long>): Set<Script>? {
+    private suspend fun buildSearchContext(dictionaryIds: Collection<Long>): SearchContext {
+        val dictionaries = dictionaryRepository.getAllDictionaries()
+            .filter { it.id in dictionaryIds }
+        return SearchContext(
+            dictionariesById = dictionaries.associateBy { it.id },
+            prioritiesById = dictionaries.associate { it.id to it.priority },
+        )
+    }
+
+    private fun getAllowedScripts(dictionaryIds: List<Long>, context: SearchContext): Set<Script>? {
         val allowed = mutableSetOf<Script>()
         for (id in dictionaryIds) {
-            val scripts = dictionaryScriptCache.getOrPut(id) {
-                val dict = dictionaryRepository.getDictionary(id) ?: return@getOrPut emptySet()
-                val src = dict.sourceLanguage.orEmpty()
+            val dict = context.dictionariesById[id] ?: continue
+            val src = dict.sourceLanguage.orEmpty()
 
-                if (src.isEmpty() || src == "unrestricted") {
-                    emptySet()
-                } else {
-                    val srcScript = mapLanguageToScript(src)
-                    setOfNotNull(srcScript)
-                }
+            val scripts = if (src.isEmpty() || src == "unrestricted") {
+                emptySet()
+            } else {
+                setOfNotNull(mapLanguageToScript(src))
             }
-            if (scripts.isEmpty()) return null // emptySet represents unrestricted, so return null
+            if (scripts.isEmpty()) return null
             allowed.addAll(scripts)
         }
         return allowed.ifEmpty { null }
@@ -66,9 +79,6 @@ class SearchDictionaryTerms(
         }
     }
 
-    /**
-     * Detects the dominant script of [text] by scanning up to [SCRIPT_DETECT_WINDOW] meaningful characters.
-     */
     private fun detectScript(text: String, allowedScripts: Set<Script>?): Script {
         var hasCjk = false
         var scanned = 0
@@ -87,6 +97,7 @@ class SearchDictionaryTerms(
             }
             if (++scanned >= SCRIPT_DETECT_WINDOW) break
         }
+
         return if (hasCjk) {
             when {
                 allowedScripts == null -> Script.JAPANESE
@@ -100,10 +111,6 @@ class SearchDictionaryTerms(
         }
     }
 
-    /**
-     * Returns the [Script] to use, honouring [override] when it is not [ParserLanguage.AUTO].
-     * When [override] is [ParserLanguage.AUTO] the script is detected from [text] automatically.
-     */
     private fun resolveScript(text: String, override: ParserLanguage, allowedScripts: Set<Script>?): Script =
         when (override) {
             ParserLanguage.AUTO -> detectScript(text, allowedScripts)
@@ -113,12 +120,6 @@ class SearchDictionaryTerms(
             ParserLanguage.ENGLISH -> Script.ENGLISH
         }
 
-    /**
-     * Searches for dictionary terms matching [query].
-     * The parser is chosen automatically from the query's script unless [parserLanguage]
-     * is set to a specific value.
-     * For Latin text, direct search runs first; if empty, the Japanese parser is used to cover romaji.
-     */
     suspend fun search(
         query: String,
         dictionaryIds: List<Long>,
@@ -126,114 +127,197 @@ class SearchDictionaryTerms(
     ): List<DictionaryTerm> {
         if (dictionaryIds.isEmpty()) return emptyList()
 
+        val context = buildSearchContext(dictionaryIds)
         val normalizedQuery = query.trim { it in punctuationCharSet || it.isWhitespace() }
-        val allowedScripts = getAllowedScripts(dictionaryIds)
+        val allowedScripts = getAllowedScripts(dictionaryIds, context)
         val script = resolveScript(normalizedQuery, parserLanguage, allowedScripts)
         val isJapaneseAllowed = allowedScripts == null || Script.JAPANESE in allowedScripts
 
         val primaryResult = when (script) {
-            Script.JAPANESE -> searchJa(normalizedQuery, dictionaryIds)
-            Script.ENGLISH -> searchEn(normalizedQuery, dictionaryIds)
-            else -> searchExact(normalizedQuery, dictionaryIds)
+            Script.JAPANESE -> searchJa(normalizedQuery, dictionaryIds, context)
+            Script.ENGLISH -> searchEn(normalizedQuery, dictionaryIds, context)
+            else -> searchExact(normalizedQuery, dictionaryIds, context)
         }
 
         return if (primaryResult.isEmpty() && script.isNonCjk() && isJapaneseAllowed) {
-            searchJa(normalizedQuery, dictionaryIds)
+            searchJa(normalizedQuery, dictionaryIds, context)
         } else {
             primaryResult
         }
     }
 
-    private suspend fun searchDeinflected(
+    private suspend fun searchLegacyJapaneseDeinflected(
         query: String,
         dictionaryIds: List<Long>,
-        isJapanese: Boolean,
-        deinflect: (String) -> List<Candidate>,
+        prioritiesById: Map<Long, Int>,
     ): List<DictionaryTerm> {
-        val formattedQuery = if (isJapanese) convertToKana(query.trim()) else query.trim()
+        val formattedQuery = convertToKana(query.trim())
         if (formattedQuery.isBlank()) return emptyList()
 
-        val candidateQueries = deinflect(formattedQuery)
+        val candidateQueries = JapaneseDeinflector.deinflect(formattedQuery)
         if (candidateQueries.isEmpty()) return emptyList()
 
-        val candidatesByTerm = candidateQueries.groupBy { if (isJapanese) it.term else it.term.lowercase() }
-        val results = LinkedHashMap<Long, DictionaryTerm>(minOf(candidateQueries.size * 4, MAX_RESULTS * 2))
+        val candidatesByTerm = candidateQueries.groupBy { it.term }
+        val results = LinkedHashMap<String, DictionaryTerm>(minOf(candidateQueries.size * 4, MAX_RESULTS * 2))
 
-        candidateLoop@ for (candidate in candidateQueries) {
-            val term = candidate.term
+        candidateLoop@ for ((term, groupedCandidates) in candidatesByTerm) {
             if (term.isBlank()) continue
 
-            val matches = dictionaryRepository.searchTerms(term, dictionaryIds).toMutableList()
-            if (!isJapanese && term != term.lowercase()) {
-                matches += dictionaryRepository.searchTerms(term.lowercase(), dictionaryIds)
-            }
+            val matches = dictionarySearchGateway.exactSearch(term, dictionaryIds)
 
-            for (dbTerm in matches) {
-                if (dbTerm.id in results) continue
+            for (entry in matches) {
+                val dbTerm = entry.term
+                val termKey = termKey(dbTerm)
+                if (termKey in results) continue
 
-                val lookupKeyExpr = if (isJapanese) dbTerm.expression else dbTerm.expression.lowercase()
-                val lookupKeyRead = if (isJapanese) dbTerm.reading else dbTerm.reading.lowercase()
-
-                val candidatesForTerm = candidatesByTerm[lookupKeyExpr]
-                    ?: candidatesByTerm[lookupKeyRead]
-                    ?: listOf(candidate)
+                val candidatesForTerm = candidatesByTerm[dbTerm.expression]
+                    ?: candidatesByTerm[dbTerm.reading]
+                    ?: groupedCandidates
 
                 if (isValidMatch(dbTerm, candidatesForTerm)) {
-                    results[dbTerm.id] = dbTerm
+                    results[termKey] = dbTerm
                     if (results.size >= MAX_RESULTS) break@candidateLoop
                 }
             }
         }
-        return results.values.toList()
+
+        return sortTermsByPriority(results.values.toList(), prioritiesById)
     }
 
-    /** Japanese search: romaji -> kana conversion + deinflection. */
-    private suspend fun searchJa(query: String, dictionaryIds: List<Long>): List<DictionaryTerm> {
-        return searchDeinflected(query, dictionaryIds, true) { JapaneseDeinflector.deinflect(it) }
-    }
+    private suspend fun searchEnglishDeinflected(
+        query: String,
+        dictionaryIds: List<Long>,
+        prioritiesById: Map<Long, Int>,
+    ): List<DictionaryTerm> {
+        val formattedQuery = query.trim()
+        if (formattedQuery.isBlank()) return emptyList()
 
-    /** Direct search (no deinflection/kana). Also tries lowercase for case-insensitivity. */
-    private suspend fun searchExact(query: String, dictionaryIds: List<Long>): List<DictionaryTerm> {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return emptyList()
+        val candidateQueries = EnglishDeinflector.deinflect(formattedQuery)
+        if (candidateQueries.isEmpty()) return emptyList()
 
-        val results = LinkedHashMap<Long, DictionaryTerm>(MAX_RESULTS * 2)
-        val matches = dictionaryRepository.searchTerms(trimmed, dictionaryIds)
-        for (dbTerm in matches) {
-            if (dbTerm.id !in results) {
-                results[dbTerm.id] = dbTerm
-                if (results.size >= MAX_RESULTS) break
-            }
-        }
+        val candidatesByTerm = candidateQueries.groupBy { it.term.lowercase() }
+        val results = LinkedHashMap<String, DictionaryTerm>(minOf(candidateQueries.size * 4, MAX_RESULTS * 2))
 
-        // Also try lowercase for case-insensitive fallback
-        val lowered = trimmed.lowercase()
-        if (lowered != trimmed && results.size < MAX_RESULTS) {
-            val lowerMatches = dictionaryRepository.searchTerms(lowered, dictionaryIds)
-            for (dbTerm in lowerMatches) {
-                if (dbTerm.id !in results) {
-                    results[dbTerm.id] = dbTerm
-                    if (results.size >= MAX_RESULTS) break
+        candidateLoop@ for ((term, groupedCandidates) in candidatesByTerm) {
+            if (term.isBlank()) continue
+
+            val matches = queryCandidates(term = term, isJapanese = false, dictionaryIds = dictionaryIds)
+
+            for (entry in matches) {
+                val dbTerm = entry.term
+                val termKey = termKey(dbTerm)
+                if (termKey in results) continue
+
+                val candidatesForTerm = candidatesByTerm[dbTerm.expression.lowercase()]
+                    ?: candidatesByTerm[dbTerm.reading.lowercase()]
+                    ?: groupedCandidates
+
+                if (isValidMatch(dbTerm, candidatesForTerm)) {
+                    results[termKey] = dbTerm
+                    if (results.size >= MAX_RESULTS) break@candidateLoop
                 }
             }
         }
 
-        return results.values.toList()
+        return sortTermsByPriority(results.values.toList(), prioritiesById)
     }
 
-    /** English search: uses EnglishDeinflector to support verb/noun/adjective inflections. */
-    private suspend fun searchEn(query: String, dictionaryIds: List<Long>): List<DictionaryTerm> {
-        return searchDeinflected(query, dictionaryIds, false) { EnglishDeinflector.deinflect(it) }
+    private suspend fun searchJa(
+        query: String,
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): List<DictionaryTerm> {
+        val normalizedQuery = convertToKana(query.trim())
+        val split = partitionDictionaryIdsByBackend(dictionaryIds, context.dictionariesById)
+        val results = LinkedHashMap<String, DictionaryTerm>(MAX_RESULTS * 2)
+        val exactMatchKeys = mutableSetOf<String>()
+
+        if (split.hoshiIds.isNotEmpty()) {
+            dictionarySearchGateway.lookup(
+                text = normalizedQuery,
+                dictionaryIds = split.hoshiIds,
+                maxResults = MAX_RESULTS,
+            ).forEach { match ->
+                val key = termKey(match.term)
+                if (key !in results && results.size < MAX_RESULTS) {
+                    results[key] = match.term
+                }
+                if (match.matched == normalizedQuery) {
+                    exactMatchKeys += key
+                }
+            }
+        }
+
+        if (results.size < MAX_RESULTS && split.legacyIds.isNotEmpty()) {
+            searchLegacyJapaneseDeinflected(query, split.legacyIds, context.prioritiesById)
+                .forEach { term ->
+                    val key = termKey(term)
+                    if (key !in results && results.size < MAX_RESULTS) {
+                        results[key] = term
+                        if (term.expression == normalizedQuery || term.reading == normalizedQuery) {
+                            exactMatchKeys += key
+                        }
+                    }
+                }
+        }
+
+        return sortTermsByLookupExactness(
+            terms = results.values.toList(),
+            prioritiesById = context.prioritiesById,
+            exactMatchKeys = exactMatchKeys,
+        )
     }
 
-    /** Returns the first matched word of [sentence]. See [findFirstWordMatch]. */
+    private suspend fun searchExact(
+        query: String,
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): List<DictionaryTerm> {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        val results = LinkedHashMap<String, DictionaryTerm>(MAX_RESULTS * 2)
+
+        dictionarySearchGateway.exactSearch(trimmed, dictionaryIds)
+            .forEach { entry ->
+                val key = termKey(entry.term)
+                if (key !in results && results.size < MAX_RESULTS) {
+                    results[key] = entry.term
+                }
+            }
+
+        val lowered = trimmed.lowercase()
+        if (lowered != trimmed && results.size < MAX_RESULTS) {
+            dictionarySearchGateway.exactSearch(lowered, dictionaryIds)
+                .forEach { entry ->
+                    val key = termKey(entry.term)
+                    if (key !in results && results.size < MAX_RESULTS) {
+                        results[key] = entry.term
+                    }
+                }
+        }
+
+        return sortTermsByExactMatch(
+            terms = results.values.toList(),
+            query = trimmed,
+            prioritiesById = context.prioritiesById,
+        )
+    }
+
+    private suspend fun searchEn(
+        query: String,
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): List<DictionaryTerm> {
+        return searchEnglishDeinflected(query, dictionaryIds, context.prioritiesById)
+    }
+
     suspend fun findFirstWord(
         sentence: String,
         dictionaryIds: List<Long>,
         parserLanguage: ParserLanguage = ParserLanguage.AUTO,
     ): String = findFirstWordMatch(sentence, dictionaryIds, parserLanguage).word
 
-    /** Segments [sentence] by finding the longest dictionary match prefix. */
     suspend fun findFirstWordMatch(
         sentence: String,
         dictionaryIds: List<Long>,
@@ -241,12 +325,13 @@ class SearchDictionaryTerms(
     ): FirstWordMatch {
         if (sentence.isBlank() || dictionaryIds.isEmpty()) return FirstWordMatch("", 0, 0)
 
-        val allowedScripts = getAllowedScripts(dictionaryIds)
+        val context = buildSearchContext(dictionaryIds)
+        val allowedScripts = getAllowedScripts(dictionaryIds, context)
         val script = resolveScript(sentence, parserLanguage, allowedScripts)
         val isJapaneseAllowed = allowedScripts == null || Script.JAPANESE in allowedScripts
 
         val primaryResult = when (script) {
-            Script.JAPANESE -> firstWordJa(sentence, dictionaryIds)
+            Script.JAPANESE -> firstWordJa(sentence, dictionaryIds, context)
             Script.ENGLISH -> firstWordEn(sentence, dictionaryIds)
             else -> firstWordDirect(sentence, dictionaryIds, script)
         }
@@ -255,13 +340,9 @@ class SearchDictionaryTerms(
             return primaryResult
         }
 
-        val jaResult = firstWordJa(sentence, dictionaryIds)
+        val jaResult = firstWordJa(sentence, dictionaryIds, context)
 
-        return when {
-            jaResult.isDictionaryMatch && !primaryResult.isDictionaryMatch -> jaResult
-            primaryResult.isDictionaryMatch && !jaResult.isDictionaryMatch -> primaryResult
-            else -> if (jaResult.sourceLength >= primaryResult.sourceLength) jaResult else primaryResult
-        }
+        return chooseBetterMatch(primaryResult, jaResult)
     }
 
     private fun stripLeadingPunctuation(sentence: String): Pair<Int, String> {
@@ -270,90 +351,144 @@ class SearchDictionaryTerms(
         return leadingTrimmedCount to sentence.drop(leadingTrimmedCount)
     }
 
-    private suspend fun findFirstWordDeinflected(
+    private suspend fun findFirstLegacyJapaneseWord(
         sentence: String,
         dictionaryIds: List<Long>,
-        isJapanese: Boolean,
-        maxLength: Int,
-        deinflect: (String) -> List<Candidate>,
     ): FirstWordMatch {
         val (leadingTrimmedCount, sanitized) = stripLeadingPunctuation(sentence)
         if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
 
-        val normalized = if (isJapanese) convertToKana(sanitized) else sanitized
-        val actualMaxLength = minOf(normalized.length, maxLength)
+        val normalized = convertToKana(sanitized)
+        val actualMaxLength = minOf(normalized.length, MAX_WORD_LENGTH)
 
-        // Descending prefix search
         for (len in actualMaxLength downTo 1) {
             val substring = normalized.take(len)
 
-            if (!isJapanese && len > 1 && substring.last().isWhitespace()) continue
-
-            val candidates = deinflect(substring)
+            val candidates = JapaneseDeinflector.deinflect(substring)
             for (candidate in candidates) {
                 val term = candidate.term
                 if (term.isBlank()) continue
 
-                var matches = dictionaryRepository.searchTerms(term, dictionaryIds)
-
-                if (!isJapanese && matches.isEmpty() && term.lowercase() != term) {
-                    matches = dictionaryRepository.searchTerms(term.lowercase(), dictionaryIds)
-                }
+                val matches = dictionarySearchGateway.exactSearch(term, dictionaryIds).map { it.term }
 
                 if (matches.isNotEmpty()) {
                     val candidatesForTerm = candidates.filter { c ->
-                        c.term == term ||
-                            (!isJapanese && c.term.equals(term, ignoreCase = true)) ||
-                            matches.any { m -> m.reading.equals(c.term, ignoreCase = !isJapanese) }
+                        c.term == term || matches.any { m -> m.reading == c.term }
                     }
 
                     if (matches.any { dbTerm -> isValidMatch(dbTerm, candidatesForTerm) }) {
-                        val sourceLength = if (isJapanese) mapSourceLength(sanitized, substring) else len
+                        val sourceLength = mapSourceLength(sanitized, substring)
                         return FirstWordMatch(substring, leadingTrimmedCount, sourceLength, true)
                     }
                 }
             }
         }
 
-        val fallbackLength = if (isJapanese) {
-            mapSourceLength(sanitized, normalized.take(1))
+        val fallbackLength = mapSourceLength(sanitized, normalized.take(1))
+        val fallbackWord = normalized.take(1)
+        return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength, false)
+    }
+
+    private suspend fun firstWordJa(
+        sentence: String,
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): FirstWordMatch {
+        val split = partitionDictionaryIdsByBackend(dictionaryIds, context.dictionariesById)
+
+        val legacyResult = if (split.legacyIds.isNotEmpty()) {
+            findFirstLegacyJapaneseWord(sentence = sentence, dictionaryIds = split.legacyIds)
         } else {
-            calcFallbackWordLen(sanitized)
+            FirstWordMatch("", 0, 0)
         }
 
-        val fallbackWord = if (isJapanese) normalized.take(1) else sanitized.take(fallbackLength)
+        val hoshiResult = if (split.hoshiIds.isNotEmpty()) {
+            firstWordJaLookup(sentence, split.hoshiIds)
+        } else {
+            FirstWordMatch("", 0, 0)
+        }
 
+        return when {
+            split.legacyIds.isEmpty() -> hoshiResult
+            split.hoshiIds.isEmpty() -> legacyResult
+            else -> chooseBetterMatch(legacyResult, hoshiResult)
+        }
+    }
+
+    private suspend fun firstWordJaLookup(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {
+        val (leadingTrimmedCount, sanitized) = stripLeadingPunctuation(sentence)
+        if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
+
+        val normalized = convertToKana(sanitized)
+        val lookupResults = dictionarySearchGateway.lookup(
+            text = normalized,
+            dictionaryIds = dictionaryIds,
+            maxResults = MAX_RESULTS,
+        )
+
+        if (lookupResults.isNotEmpty()) {
+            val best = lookupResults.first()
+            val sourceLength = mapSourceLength(sanitized, best.matched)
+            return FirstWordMatch(
+                word = best.matched,
+                sourceOffset = leadingTrimmedCount,
+                sourceLength = sourceLength,
+                isDictionaryMatch = true,
+            )
+        }
+
+        val fallbackWord = normalized.take(1)
         return FirstWordMatch(
             word = fallbackWord,
             sourceOffset = leadingTrimmedCount,
-            sourceLength = fallbackLength, // fallbackLength equals sourceLength for English
+            sourceLength = mapSourceLength(sanitized, fallbackWord),
             isDictionaryMatch = false,
         )
     }
 
-    /** Japanese segmentation: strips leading punctuation, converts romaji, then deinflects. */
-    private suspend fun firstWordJa(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {
-        return findFirstWordDeinflected(
-            sentence = sentence,
-            dictionaryIds = dictionaryIds,
-            isJapanese = true,
-            maxLength = MAX_WORD_LENGTH,
-            deinflect = { JapaneseDeinflector.deinflect(it) },
-        )
-    }
-
-    /** English segmentation: strips leading punctuation, extracts bounding word, then deinflects. */
     private suspend fun firstWordEn(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {
-        return findFirstWordDeinflected(
-            sentence = sentence,
-            dictionaryIds = dictionaryIds,
-            isJapanese = false,
-            maxLength = 40,
-            deinflect = { EnglishDeinflector.deinflect(it) },
-        )
+        return findFirstEnglishWord(sentence, dictionaryIds)
     }
 
-    /** Direct segmentation (Character-by-character longest match for non-Japanese scripts) */
+    private suspend fun findFirstEnglishWord(
+        sentence: String,
+        dictionaryIds: List<Long>,
+    ): FirstWordMatch {
+        val (leadingTrimmedCount, sanitized) = stripLeadingPunctuation(sentence)
+        if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
+
+        val normalized = sanitized
+        val actualMaxLength = minOf(normalized.length, 40)
+
+        for (len in actualMaxLength downTo 1) {
+            val substring = normalized.take(len)
+            if (len > 1 && substring.last().isWhitespace()) continue
+
+            val candidates = EnglishDeinflector.deinflect(substring)
+            for (candidate in candidates) {
+                val term = candidate.term
+                if (term.isBlank()) continue
+
+                val matches = queryCandidates(term, false, dictionaryIds)
+                if (matches.isEmpty()) continue
+
+                val candidatesForTerm = candidates.filter { c ->
+                    c.term == term ||
+                        c.term.equals(term, ignoreCase = true) ||
+                        matches.any { entry -> entry.term.reading.equals(c.term, ignoreCase = true) }
+                }
+
+                if (matches.any { entry -> isValidMatch(entry.term, candidatesForTerm) }) {
+                    return FirstWordMatch(substring, leadingTrimmedCount, len, true)
+                }
+            }
+        }
+
+        val fallbackLength = calcFallbackWordLen(sanitized)
+        val fallbackWord = sanitized.take(fallbackLength)
+        return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength, false)
+    }
+
     private suspend fun firstWordDirect(sentence: String, dictionaryIds: List<Long>, script: Script): FirstWordMatch {
         val (leadingTrimmedCount, sanitized) = stripLeadingPunctuation(sentence)
         if (sanitized.isEmpty()) return FirstWordMatch("", leadingTrimmedCount, 0)
@@ -362,35 +497,102 @@ class SearchDictionaryTerms(
 
         for (len in maxLength downTo 1) {
             val substring = sanitized.take(len)
-
-            // Optimization for spaces at the end: don't look up if ending in space, unless it's only 1 char
             if (len > 1 && substring.last().isWhitespace()) continue
 
-            val matches = dictionaryRepository.searchTerms(substring, dictionaryIds)
-            if (matches.isNotEmpty()) {
+            if (queryCandidates(substring, false, dictionaryIds).isNotEmpty()) {
                 return FirstWordMatch(substring, leadingTrimmedCount, len, true)
             }
 
             if (script == Script.ENGLISH) {
                 val lowered = substring.lowercase()
-                if (lowered != substring) {
-                    val lowerMatches = dictionaryRepository.searchTerms(lowered, dictionaryIds)
-                    if (lowerMatches.isNotEmpty()) {
-                        return FirstWordMatch(substring, leadingTrimmedCount, len, true)
-                    }
+                if (lowered != substring && queryCandidates(lowered, false, dictionaryIds).isNotEmpty()) {
+                    return FirstWordMatch(substring, leadingTrimmedCount, len, true)
                 }
             }
         }
 
-        // No match found: calculate fallback word length based on script boundaries
-        val fallbackLength = if (script.isNonCjk()) {
-            calcFallbackWordLen(sanitized)
-        } else {
-            1
-        }
-
+        val fallbackLength = if (script.isNonCjk()) calcFallbackWordLen(sanitized) else 1
         val fallbackWord = sanitized.take(fallbackLength)
         return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength, false)
+    }
+
+    private suspend fun queryCandidates(
+        term: String,
+        isJapanese: Boolean,
+        dictionaryIds: List<Long>,
+    ): List<mihon.domain.dictionary.service.DictionarySearchEntry> {
+        val results = mutableListOf<mihon.domain.dictionary.service.DictionarySearchEntry>()
+        results += dictionarySearchGateway.exactSearch(term, dictionaryIds)
+
+        if (!isJapanese) {
+            val lowered = term.lowercase()
+            if (lowered != term) {
+                results += dictionarySearchGateway.exactSearch(lowered, dictionaryIds)
+            }
+        }
+
+        return results
+    }
+
+    private fun sortTermsByPriority(
+        terms: List<DictionaryTerm>,
+        prioritiesById: Map<Long, Int>,
+    ): List<DictionaryTerm> {
+        if (terms.isEmpty()) return emptyList()
+
+        return terms.sortedWith(
+            compareBy<DictionaryTerm> { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
+                .thenByDescending { it.score },
+        )
+    }
+
+    private fun sortTermsByExactMatch(
+        terms: List<DictionaryTerm>,
+        query: String,
+        prioritiesById: Map<Long, Int>,
+    ): List<DictionaryTerm> {
+        if (terms.isEmpty()) return emptyList()
+
+        return terms.sortedWith(
+            compareBy<DictionaryTerm> { exactMatchRank(it, query) }
+                .thenBy { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
+                .thenByDescending { it.score },
+        )
+    }
+
+    private fun sortTermsByLookupExactness(
+        terms: List<DictionaryTerm>,
+        prioritiesById: Map<Long, Int>,
+        exactMatchKeys: Set<String>,
+    ): List<DictionaryTerm> {
+        if (terms.isEmpty()) return emptyList()
+
+        return terms.sortedWith(
+            compareByDescending<DictionaryTerm> { termKey(it) in exactMatchKeys }
+                .thenBy { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
+                .thenByDescending { it.score },
+        )
+    }
+
+    private fun exactMatchRank(term: DictionaryTerm, query: String): Int {
+        return when {
+            term.expression == query -> 0
+            term.reading == query -> 1
+            else -> 2
+        }
+    }
+
+    private fun chooseBetterMatch(first: FirstWordMatch, second: FirstWordMatch): FirstWordMatch {
+        return when {
+            second.isDictionaryMatch && !first.isDictionaryMatch -> second
+            first.isDictionaryMatch && !second.isDictionaryMatch -> first
+            second.sourceLength > first.sourceLength -> second
+            else -> first
+        }
+    }
+
+    private fun termKey(term: DictionaryTerm): String {
+        return "${term.dictionaryId}|${term.expression}|${term.reading}|${term.definitionTags}|${term.termTags}"
     }
 
     private fun isBoundary(c: Char): Boolean =
@@ -407,7 +609,6 @@ class SearchDictionaryTerms(
         }
     }
 
-    /** Validates that a dictionary term matches at least one candidate condition. */
     private fun isValidMatch(term: DictionaryTerm, candidates: List<Candidate>): Boolean {
         val dbRuleMask = InflectionType.parseRules(term.rules)
 
@@ -422,10 +623,13 @@ class SearchDictionaryTerms(
     suspend fun getTermMeta(
         expressions: List<String>,
         dictionaryIds: List<Long>,
-    ): Map<String, List<DictionaryTermMeta>> =
-        expressions.associateWith { expression ->
-            dictionaryRepository.getTermMetaForExpression(expression, dictionaryIds)
+    ): Map<String, List<DictionaryTermMeta>> {
+        if (expressions.isEmpty()) return emptyMap()
+        if (dictionaryIds.isEmpty()) {
+            return expressions.associateWith { emptyList() }
         }
+        return dictionarySearchGateway.getTermMeta(expressions, dictionaryIds)
+    }
 
     private fun convertToKana(input: String): String {
         return input.trim().let {
@@ -437,9 +641,6 @@ class SearchDictionaryTerms(
         }
     }
 
-    /**
-     * Maps the length of the normalized prefix back to the source string, accounting for romaji
-     */
     private fun mapSourceLength(source: String, normalizedPrefix: String): Int {
         if (normalizedPrefix.isEmpty()) return 0
 
@@ -467,12 +668,12 @@ private val PUNCTUATION_CHARS: Set<Char> = setOf(
     '「', '」', '『', '』', '（', '）', '(', ')', '【', '】',
     '〔', '〕', '《', '》', '〈', '〉',
     '・', '、', '。', '！', '？', '：', '；',
-    ' ', '\t', '\n', '\r', '\u3000', // whitespace characters
-    '\u201C', '\u201D', // double quotation marks
-    '\u2018', '\u2019', // single quotation marks
-    '"', '\'', // ASCII quotes
-    '.', ',', '…', // punctuation and ellipsis (U+2026)
-    '-', '\u2010', '\u2013', '\u2014', // hyphen variants
+    ' ', '\t', '\n', '\r', '\u3000',
+    '\u201C', '\u201D',
+    '\u2018', '\u2019',
+    '"', '\'',
+    '.', ',', '…',
+    '-', '\u2010', '\u2013', '\u2014',
     '«', '»', '<', '>', '[', ']', '{', '}', '/', '\\',
-    '〜', '\u301C', '\uFF5E', // tildes / wave dash
+    '〜', '\u301C', '\uFF5E',
 )

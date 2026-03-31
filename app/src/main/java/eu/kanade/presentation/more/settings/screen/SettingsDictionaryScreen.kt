@@ -54,7 +54,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,8 +78,9 @@ import eu.kanade.presentation.util.LocalBackPress
 import eu.kanade.tachiyomi.ui.setting.dictionary.DictionarySettingsScreenModel
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import mihon.domain.dictionary.model.Dictionary
+import mihon.domain.dictionary.model.DictionaryMigrationState
+import mihon.domain.dictionary.model.DictionaryMigrationStatus
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.TextButton
@@ -99,7 +99,6 @@ object SettingsDictionaryScreen : Screen {
         val screenModel = rememberScreenModel { DictionarySettingsScreenModel() }
         val state by screenModel.state.collectAsState()
         val snackbarHostState = remember { SnackbarHostState() }
-        val scope = rememberCoroutineScope()
         val lazyListState = rememberLazyListState()
 
         // File picker for dictionary import
@@ -107,7 +106,7 @@ object SettingsDictionaryScreen : Screen {
             contract = ActivityResultContracts.GetContent(),
         ) { uri ->
             if (uri != null) {
-                screenModel.importDictionaryFromUri(context, uri)
+                screenModel.importDictionaryFromUri(uri)
             } else {
                 context.toast(MR.strings.file_null_uri_error)
             }
@@ -116,10 +115,8 @@ object SettingsDictionaryScreen : Screen {
         // Show error messages
         LaunchedEffect(state.error) {
             state.error?.let { error ->
-                scope.launch {
-                    snackbarHostState.showSnackbar(error)
-                    screenModel.clearError()
-                }
+                snackbarHostState.showSnackbar(error)
+                screenModel.clearError()
             }
         }
 
@@ -220,8 +217,8 @@ object SettingsDictionaryScreen : Screen {
                                     recommended.forEach { dict ->
                                         RecommendedDictionaryItem(
                                             dictionary = dict,
-                                            enabled = !state.isImporting && !state.isDeleting,
-                                            onImport = { screenModel.importDictionaryFromUrl(context, dict.url) },
+                                            enabled = !state.isImporting && !state.isDeleting && !state.isMigrating,
+                                            onImport = { screenModel.importDictionaryFromUrl(dict.url) },
                                         )
                                     }
                                 }
@@ -278,7 +275,7 @@ object SettingsDictionaryScreen : Screen {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        enabled = !state.isImporting && !state.isDeleting,
+                        enabled = !state.isImporting && !state.isDeleting && !state.isMigrating,
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Add,
@@ -289,7 +286,7 @@ object SettingsDictionaryScreen : Screen {
                     }
                 }
 
-                // Import progress
+                // Import status
                 if (state.isImporting) {
                     item {
                         Card(
@@ -310,32 +307,82 @@ object SettingsDictionaryScreen : Screen {
                                     text = stringResource(MR.strings.importing_dictionary),
                                     style = MaterialTheme.typography.titleMedium,
                                 )
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                if (state.importedCount > 0) {
-                                    Text(
-                                        text = stringResource(
-                                            MR.strings.dictionary_import_progress,
-                                            state.importedCount,
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                } else {
-                                    state.importProgress?.let { progress ->
-                                        Text(
-                                            text = progress,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
                                 Text(
                                     text = stringResource(MR.strings.dictionary_import_continues_background),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        }
+                    }
+                }
+
+                if (state.currentMigrationStatus != null) {
+                    item {
+                        val currentStatus = state.currentMigrationStatus
+                        val total = currentStatus?.totalDictionaries ?: 0
+                        val completed = currentStatus?.completedDictionaries ?: 0
+                        val currentDictionary = state.dictionaries.firstOrNull { it.id == currentStatus?.dictionaryId }
+                        val progress = if (total > 0) {
+                            completed.toFloat() / total.toFloat()
+                        } else {
+                            0f
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(MR.strings.dictionary_migration_card_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                LinearProgressIndicator(
+                                    progress = { progress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                currentDictionary?.let { dictionary ->
+                                    Text(
+                                        text = stringResource(
+                                            MR.strings.dictionary_migration_running_summary,
+                                            dictionary.title,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (total > 0) {
+                                    Text(
+                                        text = stringResource(
+                                            MR.strings.dictionary_migration_progress_summary,
+                                            completed,
+                                            total,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                currentStatus?.progressText?.let { progressText ->
+                                    Text(
+                                        text = progressText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (currentStatus.state == DictionaryMigrationState.ERROR) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -421,7 +468,8 @@ object SettingsDictionaryScreen : Screen {
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             DictionaryItem(
                                 dictionary = dictionary,
-                                isOperationInProgress = state.isImporting || state.isDeleting,
+                                migrationStatus = state.migrationStatuses.firstOrNull { it.dictionaryId == dictionary.id },
+                                isOperationInProgress = state.isImporting || state.isDeleting || state.isMigrating,
                                 isFirst = index == 0,
                                 isLast = index == state.dictionaries.size - 1,
                                 isHighlighted = dictionary.id == state.highlightedDictionaryId,
@@ -513,6 +561,7 @@ private fun RecommendedDictionaryItem(
 @Composable
 private fun DictionaryItem(
     dictionary: Dictionary,
+    migrationStatus: DictionaryMigrationStatus?,
     isOperationInProgress: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
@@ -613,6 +662,19 @@ private fun DictionaryItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    migrationStatus
+                        ?.takeIf { it.state != DictionaryMigrationState.COMPLETE }
+                        ?.let { status ->
+                            Text(
+                                text = status.progressText ?: status.stage.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (status.state == DictionaryMigrationState.ERROR) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            )
+                        }
                 }
             }
 

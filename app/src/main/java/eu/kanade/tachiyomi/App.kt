@@ -37,6 +37,8 @@ import eu.kanade.tachiyomi.data.coil.MangaKeyer
 import eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.ocr.OcrScanManager
+import eu.kanade.tachiyomi.data.dictionary.DictionaryMigrationJob
+import eu.kanade.tachiyomi.data.dictionary.DictionaryMigrationRecovery
 import eu.kanade.tachiyomi.di.AppModule
 import eu.kanade.tachiyomi.di.PreferenceModule
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -51,11 +53,14 @@ import eu.kanade.tachiyomi.util.system.notify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import logcat.AndroidLogcatLogger
 import logcat.LogPriority
 import logcat.LogcatLogger
 import mihon.core.migration.Migrator
 import mihon.core.migration.migrations.migrations
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
+import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.ocr.repository.OcrRepository
 import mihon.telemetry.TelemetryConfig
 import org.conscrypt.Conscrypt
@@ -166,6 +171,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         }
 
         initializeMigrator()
+        scheduleDictionaryMigration(scope)
     }
 
     private fun initializeMigrator() {
@@ -181,6 +187,22 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 preference.set(BuildConfig.VERSION_CODE)
             },
         )
+    }
+
+    private fun scheduleDictionaryMigration(scope: androidx.lifecycle.LifecycleCoroutineScope) {
+        scope.launch {
+            val repository = Injekt.get<DictionaryRepository>()
+            val migrationStatusRepository = Injekt.get<DictionaryMigrationStatusRepository>()
+            val legacyDictionaries = repository.getLegacyDictionaries()
+            val statuses = migrationStatusRepository.getAllMigrationStatuses()
+            val hasPendingMigration = DictionaryMigrationRecovery.hasPendingMigration(
+                legacyDictionaries = legacyDictionaries,
+                statuses = statuses,
+            )
+            if (hasPendingMigration && !DictionaryMigrationJob.isScheduledOrRunning(this@App)) {
+                DictionaryMigrationJob.enqueue(this@App)
+            }
+        }
     }
 
     override fun newImageLoader(context: Context): ImageLoader {

@@ -36,7 +36,14 @@ import eu.kanade.tachiyomi.data.ocr.OcrScanNotifier
 import eu.kanade.tachiyomi.data.ocr.OcrScanStore
 import eu.kanade.tachiyomi.data.ocr.OcrScanWorkerController
 import eu.kanade.tachiyomi.data.ocr.WorkManagerOcrScanWorkerController
+import eu.kanade.tachiyomi.data.dictionary.WorkManagerDictionaryImportWorkerController
+import eu.kanade.tachiyomi.domain.dictionary.DictionaryImportWorkerController
+import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinator
+import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinatorImpl
 import mihon.data.ankidroid.AnkiDroidRepositoryImpl
+import mihon.data.dictionary.DictionarySearchGatewayImpl
+import mihon.data.dictionary.HoshiDictionaryStore
+import mihon.data.dictionary.LegacyDictionaryArchiveBuilder
 import mihon.data.dictionary.DictionaryParserImpl
 import mihon.data.dictionary.DictionaryRepositoryImpl
 import mihon.data.ocr.OcrRepositoryImpl
@@ -46,9 +53,14 @@ import mihon.domain.ankidroid.interactor.FindExistingAnkiNotes
 import mihon.domain.ankidroid.repository.AnkiDroidRepository
 import mihon.domain.chapter.interactor.FilterChaptersForDownload
 import mihon.domain.dictionary.interactor.DictionaryInteractor
-import mihon.domain.dictionary.interactor.ImportDictionary
 import mihon.domain.dictionary.interactor.SearchDictionaryTerms
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
+import mihon.domain.dictionary.service.DictionaryArchiveBuilder
+import mihon.domain.dictionary.service.DictionarySearchBackend
+import mihon.domain.dictionary.service.DictionarySearchGateway
+import mihon.domain.dictionary.service.DictionaryStorageGateway
 import mihon.domain.dictionary.service.DictionaryParser
 import mihon.domain.extensionrepo.interactor.CreateExtensionRepo
 import mihon.domain.extensionrepo.interactor.DeleteExtensionRepo
@@ -248,11 +260,22 @@ class DomainModule : InjektModule {
         addFactory { ToggleIncognito(get()) }
         addFactory { GetIncognitoState(get(), get(), get()) }
 
-        addSingletonFactory<DictionaryRepository> { DictionaryRepositoryImpl(get()) }
+        addSingletonFactory { DictionaryRepositoryImpl(get()) }
+        addSingletonFactory<DictionaryRepository> { get<DictionaryRepositoryImpl>() }
+        addSingletonFactory<DictionaryLegacyRepository> { get<DictionaryRepositoryImpl>() }
+        addSingletonFactory<DictionaryMigrationStatusRepository> { get<DictionaryRepositoryImpl>() }
         addSingletonFactory<DictionaryParser> { DictionaryParserImpl() }
+        addSingletonFactory { HoshiDictionaryStore(get<Application>(), get(), get()) }
+        addSingletonFactory<DictionarySearchBackend> { get<HoshiDictionaryStore>() }
+        addSingletonFactory<DictionaryStorageGateway> { get<HoshiDictionaryStore>() }
+        addSingletonFactory { DictionarySearchGatewayImpl(get(), get()) }
+        addSingletonFactory<DictionarySearchGateway> { get<DictionarySearchGatewayImpl>() }
+        addSingletonFactory { LegacyDictionaryArchiveBuilder(get(), get()) }
+        addSingletonFactory<DictionaryArchiveBuilder> { get<LegacyDictionaryArchiveBuilder>() }
+        addSingletonFactory<DictionaryImportWorkerController> { WorkManagerDictionaryImportWorkerController(get<Application>()) }
+        addSingletonFactory<DictionarySettingsCoordinator> { DictionarySettingsCoordinatorImpl(get(), get(), get()) }
         addFactory { DictionaryInteractor(get()) }
-        addFactory { SearchDictionaryTerms(get()) }
-        addFactory { ImportDictionary(get()) }
+        addFactory { SearchDictionaryTerms(get(), get()) }
 
         addSingletonFactory { AnkiDroidPreferences(get()) }
         addSingletonFactory<AnkiDroidRepository> { AnkiDroidRepositoryImpl(get<Application>(), get()) }
