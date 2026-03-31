@@ -34,12 +34,6 @@ import eu.kanade.tachiyomi.data.ocr.OcrQueueActions
 import eu.kanade.tachiyomi.data.ocr.OcrScanManager
 import eu.kanade.tachiyomi.data.ocr.OcrScanNotifier
 import eu.kanade.tachiyomi.data.ocr.OcrScanStore
-import eu.kanade.tachiyomi.data.ocr.OcrScanWorkerController
-import eu.kanade.tachiyomi.data.ocr.WorkManagerOcrScanWorkerController
-import eu.kanade.tachiyomi.data.dictionary.WorkManagerDictionaryImportWorkerController
-import eu.kanade.tachiyomi.domain.dictionary.DictionaryImportWorkerController
-import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinator
-import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinatorImpl
 import mihon.data.ankidroid.AnkiDroidRepositoryImpl
 import mihon.data.dictionary.DictionarySearchGatewayImpl
 import mihon.data.dictionary.HoshiDictionaryStore
@@ -272,8 +266,6 @@ class DomainModule : InjektModule {
         addSingletonFactory<DictionarySearchGateway> { get<DictionarySearchGatewayImpl>() }
         addSingletonFactory { LegacyDictionaryArchiveBuilder(get(), get()) }
         addSingletonFactory<DictionaryArchiveBuilder> { get<LegacyDictionaryArchiveBuilder>() }
-        addSingletonFactory<DictionaryImportWorkerController> { WorkManagerDictionaryImportWorkerController(get<Application>()) }
-        addSingletonFactory<DictionarySettingsCoordinator> { DictionarySettingsCoordinatorImpl(get(), get(), get()) }
         addFactory { DictionaryInteractor(get()) }
         addFactory { SearchDictionaryTerms(get(), get()) }
 
@@ -293,8 +285,7 @@ class DomainModule : InjektModule {
         addSingletonFactory { OcrPageSourceResolver(get(), get(), get()) }
         addSingletonFactory { OcrScanNotifier(get<Application>()) }
         addSingletonFactory { OcrChapterScanner(get(), get(), get(), get(), get(), get()) }
-        addSingletonFactory<OcrScanWorkerController> { WorkManagerOcrScanWorkerController(get<Application>()) }
-        addSingletonFactory { OcrScanManager(get(), get(), get(), get()) }
+        addSingletonFactory { OcrScanManager(get<Application>(), get(), get(), get()) }
         addFactory { OcrQueueActions(get(), get()) }
         addFactory { OcrProcessor(get()) }
         addFactory { WithOcrScanSession(get()) }
