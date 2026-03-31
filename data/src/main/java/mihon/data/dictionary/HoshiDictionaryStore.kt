@@ -217,6 +217,7 @@ class HoshiDictionaryStore(
         state: SessionState,
     ): List<DictionarySearchEntry> {
         val metaByDictionaryId = buildMetaByDictionaryId(termResult, allowedDictionaryIds, state)
+        val aggregatedMeta = metaByDictionaryId.values.flatten()
 
         return termResult.glossaries.mapNotNull { glossaryEntry ->
             val dictionaryId = resolveDictionaryId(
@@ -238,7 +239,7 @@ class HoshiDictionaryStore(
                     sequence = null,
                     termTags = glossaryEntry.termTags.ifBlank { null },
                 ),
-                termMeta = metaByDictionaryId[dictionaryId].orEmpty(),
+                termMeta = aggregatedMeta,
             )
         }
     }

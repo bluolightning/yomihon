@@ -228,16 +228,21 @@ class SearchDictionaryTerms(
         dictionaryIds: List<Long>,
         context: SearchContext,
     ): List<DictionaryTerm> {
+        val normalizedQuery = convertToKana(query.trim())
         val results = LinkedHashMap<String, DictionaryTerm>(MAX_RESULTS * 2)
+        val exactMatchKeys = mutableSetOf<String>()
 
         dictionarySearchGateway.lookup(
-            text = convertToKana(query.trim()),
+            text = normalizedQuery,
             dictionaryIds = dictionaryIds,
             maxResults = MAX_RESULTS,
         ).forEach { match ->
             val key = termKey(match.term)
             if (key !in results && results.size < MAX_RESULTS) {
                 results[key] = match.term
+            }
+            if (match.matched == normalizedQuery) {
+                exactMatchKeys += key
             }
         }
 
@@ -247,11 +252,18 @@ class SearchDictionaryTerms(
                     val key = termKey(term)
                     if (key !in results && results.size < MAX_RESULTS) {
                         results[key] = term
+                        if (term.expression == normalizedQuery || term.reading == normalizedQuery) {
+                            exactMatchKeys += key
+                        }
                     }
                 }
         }
 
-        return sortTermsByPriority(results.values.toList(), context.prioritiesById)
+        return sortTermsByLookupExactness(
+            terms = results.values.toList(),
+            prioritiesById = context.prioritiesById,
+            exactMatchKeys = exactMatchKeys,
+        )
     }
 
     private suspend fun searchExact(
@@ -283,7 +295,11 @@ class SearchDictionaryTerms(
                 }
         }
 
-        return sortTermsByPriority(results.values.toList(), context.prioritiesById)
+        return sortTermsByExactMatch(
+            terms = results.values.toList(),
+            query = trimmed,
+            prioritiesById = context.prioritiesById,
+        )
     }
 
     private suspend fun searchEn(
@@ -504,9 +520,44 @@ class SearchDictionaryTerms(
 
         return terms.sortedWith(
             compareBy<DictionaryTerm> { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
-                .thenByDescending { it.score }
-                .thenBy { it.expression },
+                .thenByDescending { it.score },
         )
+    }
+
+    private fun sortTermsByExactMatch(
+        terms: List<DictionaryTerm>,
+        query: String,
+        prioritiesById: Map<Long, Int>,
+    ): List<DictionaryTerm> {
+        if (terms.isEmpty()) return emptyList()
+
+        return terms.sortedWith(
+            compareBy<DictionaryTerm> { exactMatchRank(it, query) }
+                .thenBy { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
+                .thenByDescending { it.score },
+        )
+    }
+
+    private fun sortTermsByLookupExactness(
+        terms: List<DictionaryTerm>,
+        prioritiesById: Map<Long, Int>,
+        exactMatchKeys: Set<String>,
+    ): List<DictionaryTerm> {
+        if (terms.isEmpty()) return emptyList()
+
+        return terms.sortedWith(
+            compareByDescending<DictionaryTerm> { termKey(it) in exactMatchKeys }
+                .thenBy { prioritiesById[it.dictionaryId] ?: Int.MAX_VALUE }
+                .thenByDescending { it.score },
+        )
+    }
+
+    private fun exactMatchRank(term: DictionaryTerm, query: String): Int {
+        return when {
+            term.expression == query -> 0
+            term.reading == query -> 1
+            else -> 2
+        }
     }
 
     private fun chooseBetterMatch(first: FirstWordMatch, second: FirstWordMatch): FirstWordMatch {
