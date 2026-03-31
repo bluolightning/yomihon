@@ -263,6 +263,7 @@ class HoshiDictionaryStore(
                     data = frequencyMetaJson(
                         value = frequency.value,
                         displayValue = frequency.displayValue,
+                        reading = termResult.reading,
                     ),
                 )
             }
@@ -327,10 +328,11 @@ class HoshiDictionaryStore(
             .getOrDefault(emptyList())
     }
 
-    private fun frequencyMetaJson(value: Int, displayValue: String): String {
+    private fun frequencyMetaJson(value: Int, displayValue: String, reading: String): String {
         return buildJsonObject {
             put("value", value)
             put("displayValue", displayValue)
+            put("reading", reading)
         }.toString()
     }
 

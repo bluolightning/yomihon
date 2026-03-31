@@ -106,7 +106,9 @@ class DictionarySearchGatewayImpl(
 
     private fun cacheBackendEntries(entries: List<DictionarySearchEntry>) {
         entries.forEach { entry ->
-            hoshiTermMetaCache["${entry.term.dictionaryId}|${entry.term.expression}"] = entry.termMeta
+            val cacheKey = "${entry.term.dictionaryId}|${entry.term.expression}"
+            val merged = hoshiTermMetaCache[cacheKey].orEmpty() + entry.termMeta
+            hoshiTermMetaCache[cacheKey] = merged.distinctBy(::metaKey)
         }
     }
 

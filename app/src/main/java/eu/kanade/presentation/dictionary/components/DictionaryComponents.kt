@@ -297,13 +297,14 @@ private fun DictionaryTermCard(
             PitchAccentSection(
                 termMeta = termMeta,
                 dictionaries = dictionaries,
+                termReading = term.reading,
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // Display frequency indicator if available (grouped by dictionary)
-            val groupedFrequencyData = remember(termMeta) {
-                FrequencyFormatter.parseGroupedFrequencies(termMeta)
+            val groupedFrequencyData = remember(termMeta, term.reading) {
+                FrequencyFormatter.parseGroupedFrequencies(termMeta, term.reading)
             }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -390,7 +391,11 @@ private fun DictionaryTermCard(
                 modifier = Modifier.clickable { showAttribution = !showAttribution },
             )
 
-            val pitchDictNames = getPitchAccentDictionaryNames(termMeta, dictionaries)
+            val pitchDictNames = getPitchAccentDictionaryNames(
+                termMeta = termMeta,
+                dictionaries = dictionaries,
+                termReading = term.reading,
+            )
 
             // Attribution section (hidden by default, expands on dictionary name click)
             val attributionText = remember(term.glossary) {
