@@ -1,7 +1,6 @@
 package mihon.domain.dictionary.interactor
 
 import dev.esnault.wanakana.core.Wanakana
-import java.util.LinkedHashMap
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermMeta
@@ -12,6 +11,7 @@ import mihon.domain.dictionary.service.DictionarySearchGateway
 import mihon.domain.dictionary.service.EnglishDeinflector
 import mihon.domain.dictionary.service.InflectionType
 import mihon.domain.dictionary.service.JapaneseDeinflector
+import java.util.LinkedHashMap
 
 /**
  * Interactor for searching dictionary terms with multilingual support.

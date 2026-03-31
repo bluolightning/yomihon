@@ -4,8 +4,6 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.coEvery
 import io.mockk.mockk
-import java.io.File
-import java.util.zip.ZipFile
 import kotlinx.coroutines.test.runTest
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryKanjiExport
@@ -19,6 +17,8 @@ import mihon.domain.dictionary.repository.DictionaryRepository
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.io.File
+import java.util.zip.ZipFile
 
 class LegacyDictionaryArchiveBuilderTest {
     private lateinit var repository: DictionaryRepository

@@ -40,11 +40,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import eu.kanade.presentation.components.AppBar
+import eu.kanade.presentation.components.AppBarActions
 import eu.kanade.presentation.more.settings.widget.ListPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.PreferenceGroupHeader
 import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
-import eu.kanade.presentation.components.AppBar
-import eu.kanade.presentation.components.AppBarActions
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
 import kotlinx.collections.immutable.toPersistentList
@@ -212,7 +212,8 @@ object OcrQueueScreen : Screen() {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
                             factory = { context ->
-                                screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(context))
+                                screenModel.controllerBinding =
+                                    DownloadListBinding.inflate(LayoutInflater.from(context))
                                 screenModel.adapter = OcrAdapter(screenModel.listener)
                                 screenModel.controllerBinding.root.adapter = screenModel.adapter
                                 screenModel.adapter?.isHandleDragEnabled = true

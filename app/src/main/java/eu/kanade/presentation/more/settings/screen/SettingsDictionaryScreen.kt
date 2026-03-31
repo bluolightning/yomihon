@@ -468,7 +468,9 @@ object SettingsDictionaryScreen : Screen {
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             DictionaryItem(
                                 dictionary = dictionary,
-                                migrationStatus = state.migrationStatuses.firstOrNull { it.dictionaryId == dictionary.id },
+                                migrationStatus = state.migrationStatuses.firstOrNull {
+                                    it.dictionaryId == dictionary.id
+                                },
                                 isOperationInProgress = state.isImporting || state.isDeleting || state.isMigrating,
                                 isFirst = index == 0,
                                 isLast = index == state.dictionaries.size - 1,

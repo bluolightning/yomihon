@@ -4,14 +4,14 @@ import de.manhhao.hoshi.HoshiDicts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import mihon.domain.dictionary.model.DictionaryBackend
-import mihon.domain.dictionary.model.DictionaryMigrationStage
-import mihon.domain.dictionary.model.DictionaryMigrationState
-import mihon.domain.dictionary.model.DictionaryMigrationStatus
 import mihon.domain.dictionary.model.Dictionary
+import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryKanjiExport
 import mihon.domain.dictionary.model.DictionaryKanjiMetaExport
 import mihon.domain.dictionary.model.DictionaryLegacyRowCounts
+import mihon.domain.dictionary.model.DictionaryMigrationStage
+import mihon.domain.dictionary.model.DictionaryMigrationState
+import mihon.domain.dictionary.model.DictionaryMigrationStatus
 import mihon.domain.dictionary.model.DictionaryTag
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermExport
@@ -387,8 +387,16 @@ class DictionaryRepositoryImpl(
 
     override suspend fun getAllMigrationStatuses(): List<DictionaryMigrationStatus> {
         return handler.awaitList {
-            dictionaryQueries.getAllDictionaryMigrationStatuses(
-            ) { dictId, state, stage, progressText, completedDicts, totalDicts, lastError, updatedAt ->
+            dictionaryQueries.getAllDictionaryMigrationStatuses {
+                    dictId,
+                    state,
+                    stage,
+                    progressText,
+                    completedDicts,
+                    totalDicts,
+                    lastError,
+                    updatedAt,
+                ->
                 mapMigrationStatus(
                     dictionaryId = dictId,
                     state = state,
@@ -405,8 +413,16 @@ class DictionaryRepositoryImpl(
 
     override fun subscribeToMigrationStatuses(): Flow<List<DictionaryMigrationStatus>> {
         return handler.subscribeToList {
-            dictionaryQueries.getAllDictionaryMigrationStatuses(
-            ) { dictId, state, stage, progressText, completedDicts, totalDicts, lastError, updatedAt ->
+            dictionaryQueries.getAllDictionaryMigrationStatuses {
+                    dictId,
+                    state,
+                    stage,
+                    progressText,
+                    completedDicts,
+                    totalDicts,
+                    lastError,
+                    updatedAt,
+                ->
                 mapMigrationStatus(
                     dictionaryId = dictId,
                     state = state,

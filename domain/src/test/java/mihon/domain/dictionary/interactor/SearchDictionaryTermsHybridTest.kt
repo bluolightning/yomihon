@@ -69,7 +69,8 @@ class SearchDictionaryTermsHybridTest {
         coEvery { dictionarySearchGateway.exactSearch("apple", listOf(1L)) } returns listOf(
             DictionarySearchEntry(term = term, termMeta = listOf(meta)),
         )
-        coEvery { dictionarySearchGateway.getTermMeta(listOf("apple"), listOf(1L)) } returns mapOf("apple" to listOf(meta))
+        coEvery { dictionarySearchGateway.getTermMeta(listOf("apple"), listOf(1L)) } returns
+            mapOf("apple" to listOf(meta))
 
         val results = searchDictionaryTerms.search("apple", listOf(1L))
         val termMeta = searchDictionaryTerms.getTermMeta(listOf("apple"), listOf(1L))

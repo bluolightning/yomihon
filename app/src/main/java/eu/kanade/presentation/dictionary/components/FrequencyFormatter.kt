@@ -48,7 +48,7 @@ object FrequencyFormatter {
         val targetReading = reading?.takeIf { it.isNotBlank() }
         val filtered = if (targetReading != null) {
             val byReading = frequencies.filter { it.reading.isBlank() || it.reading == targetReading }
-            if (byReading.isNotEmpty()) byReading else frequencies
+            byReading.ifEmpty { frequencies }
         } else {
             frequencies
         }

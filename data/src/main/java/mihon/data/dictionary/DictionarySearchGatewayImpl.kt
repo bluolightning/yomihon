@@ -1,6 +1,5 @@
 package mihon.data.dictionary
 
-import java.util.concurrent.ConcurrentHashMap
 import mihon.domain.dictionary.model.DictionaryIdPartition
 import mihon.domain.dictionary.model.DictionaryTermMeta
 import mihon.domain.dictionary.model.partitionDictionaryIdsByBackend
@@ -9,6 +8,7 @@ import mihon.domain.dictionary.service.DictionaryLookupMatch
 import mihon.domain.dictionary.service.DictionarySearchBackend
 import mihon.domain.dictionary.service.DictionarySearchEntry
 import mihon.domain.dictionary.service.DictionarySearchGateway
+import java.util.concurrent.ConcurrentHashMap
 
 class DictionarySearchGatewayImpl(
     private val dictionaryRepository: DictionaryRepository,

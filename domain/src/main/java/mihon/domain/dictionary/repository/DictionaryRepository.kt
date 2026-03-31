@@ -1,8 +1,8 @@
 package mihon.domain.dictionary.repository
 
 import kotlinx.coroutines.flow.Flow
-import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.Dictionary
+import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryTag
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermMeta

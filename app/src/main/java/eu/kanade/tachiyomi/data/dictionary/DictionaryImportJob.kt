@@ -15,7 +15,6 @@ import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.TrustedFileDownloader
 import eu.kanade.tachiyomi.util.system.workManager
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -23,8 +22,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.archive.ArchiveReader
-import mihon.domain.dictionary.interactor.DictionaryInteractor
 import mihon.domain.dictionary.exception.DictionaryImportException
+import mihon.domain.dictionary.interactor.DictionaryInteractor
 import mihon.domain.dictionary.model.DictionaryIndex
 import mihon.domain.dictionary.service.DictionaryParseException
 import mihon.domain.dictionary.service.DictionaryParser
@@ -32,6 +31,7 @@ import mihon.domain.dictionary.service.DictionaryStorageGateway
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.File
 
 /**
  * Worker for importing dictionary files in the background.
@@ -222,10 +222,6 @@ class DictionaryImportJob(
         )
 
         const val MAX_DICTIONARY_DOWNLOAD_BYTES: Long = 300L * 1024L * 1024L
-
-        fun startFromUriString(context: Context, uriString: String) {
-            start(context, uriString.toUri())
-        }
 
         fun start(context: Context, uri: Uri) {
             val inputData = workDataOf(
