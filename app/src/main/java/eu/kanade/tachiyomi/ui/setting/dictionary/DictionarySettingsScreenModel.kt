@@ -1,12 +1,12 @@
 package eu.kanade.tachiyomi.ui.setting.dictionary
 
+import android.app.Application
 import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
-import eu.kanade.tachiyomi.domain.dictionary.DictionaryImportRequest
-import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinator
+import eu.kanade.tachiyomi.data.dictionary.DictionaryImportJob
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
@@ -16,14 +16,18 @@ import mihon.domain.dictionary.interactor.DictionaryInteractor
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryMigrationState
 import mihon.domain.dictionary.model.DictionaryMigrationStatus
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
+import mihon.domain.dictionary.repository.DictionaryRepository
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-class DictionarySettingsScreenModel(
+internal class DictionarySettingsScreenModel(
     private val dictionaryInteractor: DictionaryInteractor = Injekt.get(),
-    private val dictionarySettingsCoordinator: DictionarySettingsCoordinator = Injekt.get(),
+    private val dictionaryRepository: DictionaryRepository = Injekt.get(),
+    private val dictionaryMigrationStatusRepository: DictionaryMigrationStatusRepository = Injekt.get(),
+    private val context: Application = Injekt.get(),
 ) : StateScreenModel<DictionarySettingsScreenModel.State>(State()) {
 
     init {
@@ -31,7 +35,7 @@ class DictionarySettingsScreenModel(
         observeMigrationStatuses()
 
         screenModelScope.launch {
-            dictionarySettingsCoordinator.observeImportRunning()
+            DictionaryImportJob.isRunningFlow(context)
                 .collectLatest { isRunning ->
                     mutableState.update {
                         it.copy(
@@ -44,7 +48,7 @@ class DictionarySettingsScreenModel(
 
     private fun observeDictionaries() {
         screenModelScope.launch {
-            dictionarySettingsCoordinator.observeDictionaries().collectLatest { dictionaries ->
+            dictionaryRepository.subscribeToDictionaries().collectLatest { dictionaries ->
                 mutableState.update {
                     it.copy(
                         dictionaries = dictionaries,
@@ -57,7 +61,7 @@ class DictionarySettingsScreenModel(
 
     private fun observeMigrationStatuses() {
         screenModelScope.launch {
-            dictionarySettingsCoordinator.observeMigrationStatuses().collectLatest { statuses ->
+            dictionaryMigrationStatusRepository.subscribeToMigrationStatuses().collectLatest { statuses ->
                 val activeStatuses = statuses.filter { it.state != DictionaryMigrationState.COMPLETE }
                 val currentStatus = activeStatuses.firstOrNull()
                 mutableState.update {
@@ -72,11 +76,11 @@ class DictionarySettingsScreenModel(
     }
 
     fun importDictionaryFromUri(uri: Uri) {
-        dictionarySettingsCoordinator.startImport(DictionaryImportRequest.LocalArchive(uri.toString()))
+        DictionaryImportJob.start(context, uri)
     }
 
     fun importDictionaryFromUrl(url: String) {
-        dictionarySettingsCoordinator.startImport(DictionaryImportRequest.RemoteUrl(url))
+        DictionaryImportJob.start(context, url)
     }
 
     fun updateDictionary(context: Context, dictionary: Dictionary) {
@@ -86,7 +90,7 @@ class DictionarySettingsScreenModel(
                 context.toast(MR.strings.dictionary_update_success.getString(context))
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "Failed to update dictionary" }
-                context.toast(e.message ?: MR.strings.dictionary_update_fail.getString(context))
+                context.toast(MR.strings.dictionary_update_fail.getString(context))
             }
         }
     }
@@ -135,7 +139,7 @@ class DictionarySettingsScreenModel(
                 context.toast(MR.strings.dictionary_delete_success.getString(context))
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "Failed to delete dictionary" }
-                context.toast(e.message ?: MR.strings.dictionary_delete_fail.getString(context))
+                context.toast(MR.strings.dictionary_delete_fail.getString(context))
             } finally {
                 mutableState.update { it.copy(isDeleting = false) }
             }

@@ -78,7 +78,7 @@ class DictionarySearchScreenModel(
                 }
             } catch (e: Exception) {
                 mutableState.update { it.copy(isLoading = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Failed to load dictionaries")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_load_fail)))
             }
         }
     }
@@ -96,7 +96,7 @@ class DictionarySearchScreenModel(
                 }
             } catch (e: Exception) {
                 mutableState.update { it.copy(isLoading = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Failed to load dictionaries")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_load_fail)))
             }
         }
     }
@@ -135,7 +135,7 @@ class DictionarySearchScreenModel(
             try {
                 val enabledDictionaryIds = state.value.enabledDictionaryIds
                 if (enabledDictionaryIds.isEmpty()) {
-                    _events.send(Event.ShowError(UiMessage.Text("No dictionaries enabled")))
+                    _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_no_enabled)))
                     mutableState.update { it.copy(isSearching = false, results = null) }
                     return@launch
                 }
@@ -197,7 +197,7 @@ class DictionarySearchScreenModel(
                 checkExistingNotesInBackground(items.map { it.expression }.distinct())
             } catch (e: Exception) {
                 mutableState.update { it.copy(isSearching = false) }
-                _events.send(Event.ShowError(UiMessage.Text(e.message ?: "Search failed")))
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.dictionary_search_failed)))
             }
         }
     }
