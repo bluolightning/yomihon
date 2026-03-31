@@ -2,6 +2,7 @@ package mihon.domain.dictionary.interactor
 
 import dev.esnault.wanakana.core.Wanakana
 import java.util.LinkedHashMap
+import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermMeta
@@ -38,6 +39,11 @@ class SearchDictionaryTerms(
         val prioritiesById: Map<Long, Int>,
     )
 
+    private data class DictionaryIdSplit(
+        val legacyIds: List<Long>,
+        val hoshiIds: List<Long>,
+    )
+
     private fun Script.isNonCjk(): Boolean =
         this != Script.JAPANESE && this != Script.CHINESE && this != Script.KOREAN
 
@@ -47,6 +53,28 @@ class SearchDictionaryTerms(
         return SearchContext(
             dictionariesById = dictionaries.associateBy { it.id },
             prioritiesById = dictionaries.associate { it.id to it.priority },
+        )
+    }
+
+    private fun splitDictionaryIdsByBackend(
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): DictionaryIdSplit {
+        val legacyIds = mutableListOf<Long>()
+        val hoshiIds = mutableListOf<Long>()
+
+        dictionaryIds.forEach { id ->
+            val dictionary = context.dictionariesById[id]
+            if (dictionary?.backend == DictionaryBackend.HOSHI && dictionary.storageReady) {
+                hoshiIds += id
+            } else {
+                legacyIds += id
+            }
+        }
+
+        return DictionaryIdSplit(
+            legacyIds = legacyIds,
+            hoshiIds = hoshiIds,
         )
     }
 
@@ -159,8 +187,7 @@ class SearchDictionaryTerms(
         val candidatesByTerm = candidateQueries.groupBy { it.term }
         val results = LinkedHashMap<String, DictionaryTerm>(minOf(candidateQueries.size * 4, MAX_RESULTS * 2))
 
-        candidateLoop@ for (candidate in candidateQueries) {
-            val term = candidate.term
+        candidateLoop@ for ((term, groupedCandidates) in candidatesByTerm) {
             if (term.isBlank()) continue
 
             val matches = dictionarySearchGateway.exactSearch(term, dictionaryIds)
@@ -172,7 +199,7 @@ class SearchDictionaryTerms(
 
                 val candidatesForTerm = candidatesByTerm[dbTerm.expression]
                     ?: candidatesByTerm[dbTerm.reading]
-                    ?: listOf(candidate)
+                    ?: groupedCandidates
 
                 if (isValidMatch(dbTerm, candidatesForTerm)) {
                     results[termKey] = dbTerm
@@ -198,8 +225,7 @@ class SearchDictionaryTerms(
         val candidatesByTerm = candidateQueries.groupBy { it.term.lowercase() }
         val results = LinkedHashMap<String, DictionaryTerm>(minOf(candidateQueries.size * 4, MAX_RESULTS * 2))
 
-        candidateLoop@ for (candidate in candidateQueries) {
-            val term = candidate.term
+        candidateLoop@ for ((term, groupedCandidates) in candidatesByTerm) {
             if (term.isBlank()) continue
 
             val matches = queryCandidates(term = term, isJapanese = false, dictionaryIds = dictionaryIds)
@@ -211,7 +237,7 @@ class SearchDictionaryTerms(
 
                 val candidatesForTerm = candidatesByTerm[dbTerm.expression.lowercase()]
                     ?: candidatesByTerm[dbTerm.reading.lowercase()]
-                    ?: listOf(candidate)
+                    ?: groupedCandidates
 
                 if (isValidMatch(dbTerm, candidatesForTerm)) {
                     results[termKey] = dbTerm
@@ -229,25 +255,28 @@ class SearchDictionaryTerms(
         context: SearchContext,
     ): List<DictionaryTerm> {
         val normalizedQuery = convertToKana(query.trim())
+        val split = splitDictionaryIdsByBackend(dictionaryIds, context)
         val results = LinkedHashMap<String, DictionaryTerm>(MAX_RESULTS * 2)
         val exactMatchKeys = mutableSetOf<String>()
 
-        dictionarySearchGateway.lookup(
-            text = normalizedQuery,
-            dictionaryIds = dictionaryIds,
-            maxResults = MAX_RESULTS,
-        ).forEach { match ->
-            val key = termKey(match.term)
-            if (key !in results && results.size < MAX_RESULTS) {
-                results[key] = match.term
-            }
-            if (match.matched == normalizedQuery) {
-                exactMatchKeys += key
+        if (split.hoshiIds.isNotEmpty()) {
+            dictionarySearchGateway.lookup(
+                text = normalizedQuery,
+                dictionaryIds = split.hoshiIds,
+                maxResults = MAX_RESULTS,
+            ).forEach { match ->
+                val key = termKey(match.term)
+                if (key !in results && results.size < MAX_RESULTS) {
+                    results[key] = match.term
+                }
+                if (match.matched == normalizedQuery) {
+                    exactMatchKeys += key
+                }
             }
         }
 
-        if (results.size < MAX_RESULTS) {
-            searchLegacyJapaneseDeinflected(query, dictionaryIds, context.prioritiesById)
+        if (results.size < MAX_RESULTS && split.legacyIds.isNotEmpty()) {
+            searchLegacyJapaneseDeinflected(query, split.legacyIds, context.prioritiesById)
                 .forEach { term ->
                     val key = termKey(term)
                     if (key !in results && results.size < MAX_RESULTS) {
@@ -329,7 +358,7 @@ class SearchDictionaryTerms(
         val isJapaneseAllowed = allowedScripts == null || Script.JAPANESE in allowedScripts
 
         val primaryResult = when (script) {
-            Script.JAPANESE -> firstWordJa(sentence, dictionaryIds)
+            Script.JAPANESE -> firstWordJa(sentence, dictionaryIds, context)
             Script.ENGLISH -> firstWordEn(sentence, dictionaryIds)
             else -> firstWordDirect(sentence, dictionaryIds, script)
         }
@@ -338,7 +367,7 @@ class SearchDictionaryTerms(
             return primaryResult
         }
 
-        val jaResult = firstWordJa(sentence, dictionaryIds)
+        val jaResult = firstWordJa(sentence, dictionaryIds, context)
 
         return chooseBetterMatch(primaryResult, jaResult)
     }
@@ -387,10 +416,33 @@ class SearchDictionaryTerms(
         return FirstWordMatch(fallbackWord, leadingTrimmedCount, fallbackLength, false)
     }
 
-    private suspend fun firstWordJa(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {
-        val exactResult = findFirstLegacyJapaneseWord(sentence = sentence, dictionaryIds = dictionaryIds)
-        val lookupResult = firstWordJaLookup(sentence, dictionaryIds)
-        return chooseBetterMatch(exactResult, lookupResult)
+    private suspend fun firstWordJa(
+        sentence: String,
+        dictionaryIds: List<Long>,
+        context: SearchContext,
+    ): FirstWordMatch {
+        val split = splitDictionaryIdsByBackend(dictionaryIds, context)
+        if (split.legacyIds.isEmpty() && split.hoshiIds.isEmpty()) {
+            return firstWordJaLookup(sentence, dictionaryIds)
+        }
+
+        val legacyResult = if (split.legacyIds.isNotEmpty()) {
+            findFirstLegacyJapaneseWord(sentence = sentence, dictionaryIds = split.legacyIds)
+        } else {
+            FirstWordMatch("", 0, 0)
+        }
+
+        val hoshiResult = if (split.hoshiIds.isNotEmpty()) {
+            firstWordJaLookup(sentence, split.hoshiIds)
+        } else {
+            FirstWordMatch("", 0, 0)
+        }
+
+        return when {
+            split.legacyIds.isEmpty() -> hoshiResult
+            split.hoshiIds.isEmpty() -> legacyResult
+            else -> chooseBetterMatch(legacyResult, hoshiResult)
+        }
     }
 
     private suspend fun firstWordJaLookup(sentence: String, dictionaryIds: List<Long>): FirstWordMatch {

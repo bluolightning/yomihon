@@ -192,6 +192,7 @@ class SentenceParserTest {
 
         word shouldBe "食べた"
         coVerify(exactly = 1) { dictionarySearchGateway.lookup("食べたって言ったよ", testDictionaryIds, any()) }
+        coVerify(exactly = 0) { dictionarySearchGateway.exactSearch(any(), any()) }
     }
 
     @Test

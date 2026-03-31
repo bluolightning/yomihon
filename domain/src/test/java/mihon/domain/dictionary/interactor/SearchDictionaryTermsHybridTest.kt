@@ -251,6 +251,7 @@ class SearchDictionaryTermsHybridTest {
 
         results.map { it.expression } shouldBe listOf("食べる")
         coVerify(exactly = 1) { dictionarySearchGateway.lookup("食べた", listOf(1L), any()) }
+        coVerify(exactly = 0) { dictionarySearchGateway.exactSearch(any(), any()) }
     }
 
     @Test
