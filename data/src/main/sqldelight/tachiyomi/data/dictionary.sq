@@ -325,11 +325,6 @@ WHERE dictionary_id = :dictionaryId;
 
 -- Migration status queries
 
-getDictionaryMigrationStatus:
-SELECT *
-FROM dictionary_migration_status
-WHERE dictionary_id = :dictionaryId;
-
 getAllDictionaryMigrationStatuses:
 SELECT *
 FROM dictionary_migration_status

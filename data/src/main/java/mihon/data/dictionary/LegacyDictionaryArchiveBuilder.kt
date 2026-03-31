@@ -21,6 +21,7 @@ import mihon.domain.dictionary.model.GlossaryEntry
 import mihon.domain.dictionary.model.GlossaryNode
 import mihon.domain.dictionary.model.GlossaryTag
 import mihon.domain.dictionary.model.DictionaryTag
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.DictionaryArchiveBuildResult
 import mihon.domain.dictionary.service.DictionaryArchiveBuilder
@@ -29,6 +30,7 @@ import kotlin.coroutines.coroutineContext
 
 class LegacyDictionaryArchiveBuilder(
     private val dictionaryRepository: DictionaryRepository,
+    private val dictionaryLegacyRepository: DictionaryLegacyRepository,
 ) : DictionaryArchiveBuilder {
 
     override suspend fun buildArchive(
@@ -42,7 +44,7 @@ class LegacyDictionaryArchiveBuilder(
             destination.delete()
         }
 
-        val counts = dictionaryRepository.getLegacyRowCounts(dictionary.id)
+        val counts = dictionaryLegacyRepository.getLegacyRowCounts(dictionary.id)
         val tagCount = counts.tagCount
         val termCount = counts.termCount
         val termMetaCount = counts.termMetaCount
@@ -145,7 +147,7 @@ class LegacyDictionaryArchiveBuilder(
 
         while (offset < totalCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getTermsExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getTermsExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
             if (sampleExpression == null) {
                 sampleExpression = page.first().expression
@@ -196,7 +198,7 @@ class LegacyDictionaryArchiveBuilder(
         var offset = 0L
         while (offset < totalCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getTermMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
 
             putJsonEntry(zip, "term_meta_bank_${bankIndex}.json") { writer ->
@@ -237,7 +239,7 @@ class LegacyDictionaryArchiveBuilder(
         var offset = 0L
         while (offset < totalCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getKanjiExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getKanjiExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
 
             putJsonEntry(zip, "kanji_bank_${bankIndex}.json") { writer ->
@@ -274,7 +276,7 @@ class LegacyDictionaryArchiveBuilder(
         var offset = 0L
         while (offset < totalCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getKanjiMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getKanjiMetaExportForDictionary(dictionary.id, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
 
             putJsonEntry(zip, "kanji_meta_bank_${bankIndex}.json") { writer ->
@@ -482,7 +484,7 @@ class LegacyDictionaryArchiveBuilder(
         var offset = 0L
         while (offset < totalTermCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getTermsExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getTermsExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
             if (page.any { it.sequence != null }) {
                 return true
@@ -499,7 +501,7 @@ class LegacyDictionaryArchiveBuilder(
         var offset = 0L
         while (offset < totalTermMetaCount) {
             coroutineContext.ensureActive()
-            val page = dictionaryRepository.getTermMetaExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
+            val page = dictionaryLegacyRepository.getTermMetaExportForDictionary(dictionaryId, BANK_PAGE_SIZE, offset)
             if (page.isEmpty()) break
 
             if (page.any { it.mode.equals("freq", ignoreCase = true) }) {

@@ -13,28 +13,27 @@ import mihon.domain.dictionary.model.DictionaryTermMeta
 import mihon.domain.dictionary.model.TermMetaMode
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.DictionaryLookupMatch
-import mihon.domain.dictionary.service.DictionarySearchBackend
 import mihon.domain.dictionary.service.DictionarySearchEntry
+import mihon.domain.dictionary.service.DictionarySearchGateway
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class SearchDictionaryTermsHybridTest {
     private lateinit var dictionaryRepository: DictionaryRepository
-    private lateinit var dictionarySearchBackend: DictionarySearchBackend
+    private lateinit var dictionarySearchGateway: DictionarySearchGateway
     private lateinit var searchDictionaryTerms: SearchDictionaryTerms
 
     @BeforeEach
     fun setup() {
         dictionaryRepository = mockk()
-        dictionarySearchBackend = mockk()
+        dictionarySearchGateway = mockk()
 
-        coEvery { dictionaryRepository.searchTerms(any(), any()) } returns emptyList()
-        coEvery { dictionaryRepository.getTermMetaForExpression(any(), any()) } returns emptyList()
         coEvery { dictionaryRepository.getAllDictionaries() } returns emptyList()
-        coEvery { dictionarySearchBackend.exactSearch(any(), any()) } returns emptyList()
-        coEvery { dictionarySearchBackend.lookup(any(), any(), any()) } returns emptyList<DictionaryLookupMatch>()
+        coEvery { dictionarySearchGateway.exactSearch(any(), any()) } returns emptyList()
+        coEvery { dictionarySearchGateway.lookup(any(), any(), any()) } returns emptyList<DictionaryLookupMatch>()
+        coEvery { dictionarySearchGateway.getTermMeta(any(), any()) } returns emptyMap()
 
-        searchDictionaryTerms = SearchDictionaryTerms(dictionaryRepository, dictionarySearchBackend)
+        searchDictionaryTerms = SearchDictionaryTerms(dictionaryRepository, dictionarySearchGateway)
     }
 
     @Test
@@ -67,9 +66,10 @@ class SearchDictionaryTermsHybridTest {
         )
 
         coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(migratedDictionary)
-        coEvery { dictionarySearchBackend.exactSearch("apple", listOf(1L)) } returns listOf(
+        coEvery { dictionarySearchGateway.exactSearch("apple", listOf(1L)) } returns listOf(
             DictionarySearchEntry(term = term, termMeta = listOf(meta)),
         )
+        coEvery { dictionarySearchGateway.getTermMeta(listOf("apple"), listOf(1L)) } returns mapOf("apple" to listOf(meta))
 
         val results = searchDictionaryTerms.search("apple", listOf(1L))
         val termMeta = searchDictionaryTerms.getTermMeta(listOf("apple"), listOf(1L))
@@ -102,20 +102,20 @@ class SearchDictionaryTermsHybridTest {
 
         coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(legacyDictionary, migratedDictionary)
 
-        coEvery { dictionaryRepository.searchTerms("apple", listOf(1L)) } returns listOf(
-            DictionaryTerm(
-                dictionaryId = 1L,
-                expression = "apple",
-                reading = "apple",
-                definitionTags = null,
-                rules = null,
-                score = 50,
-                glossary = emptyList(),
-                termTags = null,
+        coEvery { dictionarySearchGateway.exactSearch("apple", listOf(1L, 2L)) } returns listOf(
+            DictionarySearchEntry(
+                term = DictionaryTerm(
+                    dictionaryId = 1L,
+                    expression = "apple",
+                    reading = "apple",
+                    definitionTags = null,
+                    rules = null,
+                    score = 50,
+                    glossary = emptyList(),
+                    termTags = null,
+                ),
+                termMeta = emptyList(),
             ),
-        )
-
-        coEvery { dictionarySearchBackend.exactSearch("apple", listOf(2L)) } returns listOf(
             DictionarySearchEntry(
                 term = DictionaryTerm(
                     dictionaryId = 2L,
@@ -138,19 +138,18 @@ class SearchDictionaryTermsHybridTest {
     }
 
     @Test
-    fun `empty dictionary selection returns no results without touching either backend`() = runTest {
+    fun `empty dictionary selection returns no results without touching the search gateway`() = runTest {
         val results = searchDictionaryTerms.search("apple", emptyList())
         val meta = searchDictionaryTerms.getTermMeta(listOf("apple"), emptyList())
 
         results shouldBe emptyList()
         meta["apple"] shouldBe emptyList()
 
-        coVerify(exactly = 0) { dictionaryRepository.searchTerms(any(), any()) }
-        coVerify(exactly = 0) { dictionarySearchBackend.exactSearch(any(), any()) }
+        coVerify(exactly = 0) { dictionarySearchGateway.exactSearch(any(), any()) }
     }
 
     @Test
-    fun `japanese search uses hoshi lookup for deinflection`() = runTest {
+    fun `japanese search uses lookup for deinflection`() = runTest {
         val japaneseDictionary = Dictionary(
             id = 1L,
             title = "Japanese",
@@ -172,7 +171,7 @@ class SearchDictionaryTermsHybridTest {
         )
 
         coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(japaneseDictionary)
-        coEvery { dictionarySearchBackend.lookup("食べた", listOf(1L), any()) } returns listOf(
+        coEvery { dictionarySearchGateway.lookup("食べた", listOf(1L), any()) } returns listOf(
             DictionaryLookupMatch(
                 matched = "食べた",
                 deinflected = "食べる",
@@ -185,9 +184,7 @@ class SearchDictionaryTermsHybridTest {
         val results = searchDictionaryTerms.search("食べた", listOf(1L))
 
         results.map { it.expression } shouldBe listOf("食べる")
-        coVerify(exactly = 1) { dictionarySearchBackend.lookup("食べた", listOf(1L), any()) }
-        coVerify(exactly = 0) { dictionaryRepository.searchTerms(any(), any()) }
-        coVerify(exactly = 0) { dictionarySearchBackend.exactSearch(any(), any()) }
+        coVerify(exactly = 1) { dictionarySearchGateway.lookup("食べた", listOf(1L), any()) }
     }
 
     @Test
@@ -213,16 +210,15 @@ class SearchDictionaryTermsHybridTest {
         )
 
         coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(englishDictionary)
-        coEvery { dictionarySearchBackend.exactSearch("looked", listOf(1L)) } returns emptyList()
-        coEvery { dictionarySearchBackend.exactSearch("look", listOf(1L)) } returns listOf(
+        coEvery { dictionarySearchGateway.exactSearch("looked", listOf(1L)) } returns emptyList()
+        coEvery { dictionarySearchGateway.exactSearch("look", listOf(1L)) } returns listOf(
             DictionarySearchEntry(term = term, termMeta = emptyList()),
         )
 
         val results = searchDictionaryTerms.search("looked", listOf(1L))
 
         results.map { it.expression } shouldBe listOf("look")
-        coVerify(exactly = 1) { dictionarySearchBackend.exactSearch("looked", listOf(1L)) }
-        coVerify(atLeast = 1) { dictionarySearchBackend.exactSearch("look", listOf(1L)) }
-        coVerify(exactly = 0) { dictionarySearchBackend.lookup(any(), any(), any()) }
+        coVerify(exactly = 1) { dictionarySearchGateway.exactSearch("looked", listOf(1L)) }
+        coVerify(atLeast = 1) { dictionarySearchGateway.exactSearch("look", listOf(1L)) }
     }
 }

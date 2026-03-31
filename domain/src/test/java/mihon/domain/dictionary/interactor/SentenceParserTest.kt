@@ -4,19 +4,21 @@ import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.service.DictionaryLookupMatch
-import mihon.domain.dictionary.service.DictionarySearchBackend
 import mihon.domain.dictionary.repository.DictionaryRepository
+import mihon.domain.dictionary.service.DictionarySearchEntry
+import mihon.domain.dictionary.service.DictionarySearchGateway
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class SentenceParserTest {
     private lateinit var dictionaryRepository: DictionaryRepository
-    private lateinit var dictionarySearchBackend: DictionarySearchBackend
+    private lateinit var dictionarySearchGateway: DictionarySearchGateway
     private lateinit var searchDictionaryTerms: SearchDictionaryTerms
     private val testDictionaryIds = listOf(1L)
 
@@ -39,7 +41,7 @@ class SentenceParserTest {
     @BeforeEach
     fun setup() {
         dictionaryRepository = mockk()
-        dictionarySearchBackend = mockk()
+        dictionarySearchGateway = mockk()
         val defaultDictionary = Dictionary(
             id = 1L,
             title = "Test",
@@ -50,13 +52,16 @@ class SentenceParserTest {
 
         // Default: return empty for any query
         coEvery { dictionaryRepository.searchTerms(any(), any()) } returns emptyList()
-        coEvery { dictionaryRepository.getDictionary(any()) } returns defaultDictionary
         coEvery { dictionaryRepository.getAllDictionaries() } returns listOf(defaultDictionary)
-        coEvery { dictionarySearchBackend.exactSearch(any(), any()) } returns emptyList()
-        coEvery { dictionarySearchBackend.lookup(any(), any(), any()) } returns emptyList<DictionaryLookupMatch>()
-        coEvery { dictionaryRepository.getTermMetaForExpression(any(), any()) } returns emptyList()
+        coEvery { dictionarySearchGateway.exactSearch(any(), any()) } answers {
+            runBlocking {
+                dictionaryRepository.searchTerms(firstArg(), secondArg()).map { DictionarySearchEntry(it, emptyList()) }
+            }
+        }
+        coEvery { dictionarySearchGateway.lookup(any(), any(), any()) } returns emptyList<DictionaryLookupMatch>()
+        coEvery { dictionarySearchGateway.getTermMeta(any(), any()) } returns emptyMap()
 
-        searchDictionaryTerms = SearchDictionaryTerms(dictionaryRepository, dictionarySearchBackend)
+        searchDictionaryTerms = SearchDictionaryTerms(dictionaryRepository, dictionarySearchGateway)
     }
 
     @Test
@@ -173,7 +178,7 @@ class SentenceParserTest {
             backend = DictionaryBackend.HOSHI,
             storageReady = true,
         ))
-        coEvery { dictionarySearchBackend.lookup("食べたって言ったよ", testDictionaryIds, any()) } returns listOf(
+        coEvery { dictionarySearchGateway.lookup("食べたって言ったよ", testDictionaryIds, any()) } returns listOf(
             DictionaryLookupMatch(
                 matched = "食べた",
                 deinflected = "食べる",
@@ -186,8 +191,7 @@ class SentenceParserTest {
         val word = searchDictionaryTerms.findFirstWord("食べたって言ったよ", testDictionaryIds)
 
         word shouldBe "食べた"
-        coVerify(exactly = 1) { dictionarySearchBackend.lookup("食べたって言ったよ", testDictionaryIds, any()) }
-        coVerify(exactly = 0) { dictionaryRepository.searchTerms("食べる", testDictionaryIds) }
+        coVerify(exactly = 1) { dictionarySearchGateway.lookup("食べたって言ったよ", testDictionaryIds, any()) }
     }
 
     @Test

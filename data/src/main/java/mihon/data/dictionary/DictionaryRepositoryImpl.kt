@@ -1,8 +1,6 @@
 package mihon.data.dictionary
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryMigrationStage
 import mihon.domain.dictionary.model.DictionaryMigrationState
@@ -17,16 +15,14 @@ import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermExport
 import mihon.domain.dictionary.model.DictionaryTermMeta
 import mihon.domain.dictionary.model.DictionaryTermMetaExport
-import mihon.domain.dictionary.model.GlossaryEntry
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import tachiyomi.data.DatabaseHandler
 
 class DictionaryRepositoryImpl(
     private val handler: DatabaseHandler,
-) : DictionaryRepository {
-
-    private val json = Json { ignoreUnknownKeys = true }
-    private val glossarySerializer = ListSerializer(GlossaryEntry.serializer())
+) : DictionaryRepository, DictionaryLegacyRepository, DictionaryMigrationStatusRepository {
 
     // Dictionary operations
 
@@ -151,7 +147,7 @@ class DictionaryRepositoryImpl(
         }.map { it.toDomain() }
     }
 
-    override suspend fun getTagCountForDictionary(dictionaryId: Long): Long {
+    private suspend fun getTagCountForDictionary(dictionaryId: Long): Long {
         return handler.awaitOneExecutable {
             dictionaryQueries.getTagCountForDictionary(dictionaryId)
         }
@@ -190,7 +186,7 @@ class DictionaryRepositoryImpl(
         }
     }
 
-    override suspend fun getTermCountForDictionary(dictionaryId: Long): Long {
+    private suspend fun getTermCountForDictionary(dictionaryId: Long): Long {
         return handler.awaitOneExecutable {
             dictionaryQueries.getTermCountForDictionary(dictionaryId)
         }
@@ -237,7 +233,7 @@ class DictionaryRepositoryImpl(
         }
     }
 
-    override suspend fun getKanjiCountForDictionary(dictionaryId: Long): Long {
+    private suspend fun getKanjiCountForDictionary(dictionaryId: Long): Long {
         return handler.awaitOneExecutable {
             dictionaryQueries.getKanjiCountForDictionary(dictionaryId)
         }
@@ -280,7 +276,7 @@ class DictionaryRepositoryImpl(
         }
     }
 
-    override suspend fun getTermMetaCountForDictionary(dictionaryId: Long): Long {
+    private suspend fun getTermMetaCountForDictionary(dictionaryId: Long): Long {
         return handler.awaitOneExecutable {
             dictionaryQueries.getTermMetaCountForDictionary(dictionaryId)
         }
@@ -326,7 +322,7 @@ class DictionaryRepositoryImpl(
         }
     }
 
-    override suspend fun getKanjiMetaCountForDictionary(dictionaryId: Long): Long {
+    private suspend fun getKanjiMetaCountForDictionary(dictionaryId: Long): Long {
         return handler.awaitOneExecutable {
             dictionaryQueries.getKanjiMetaCountForDictionary(dictionaryId)
         }
@@ -360,25 +356,6 @@ class DictionaryRepositoryImpl(
                 last_error = status.lastError,
                 updated_at = status.updatedAt,
             )
-        }
-    }
-
-    override suspend fun getMigrationStatus(dictionaryId: Long): DictionaryMigrationStatus? {
-        return handler.awaitOneOrNull {
-            dictionaryQueries.getDictionaryMigrationStatus(
-                dictionaryId = dictionaryId,
-            ) { dictId, state, stage, progressText, completedDicts, totalDicts, lastError, updatedAt ->
-                mapMigrationStatus(
-                    dictionaryId = dictId,
-                    state = state,
-                    stage = stage,
-                    progressText = progressText,
-                    completedDictionaries = completedDicts,
-                    totalDictionaries = totalDicts,
-                    lastError = lastError,
-                    updatedAt = updatedAt,
-                )
-            }
         }
     }
 

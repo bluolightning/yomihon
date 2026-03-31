@@ -26,6 +26,8 @@ import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryMigrationStage
 import mihon.domain.dictionary.model.DictionaryMigrationState
 import mihon.domain.dictionary.model.DictionaryMigrationStatus
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.DictionaryArchiveBuilder
 import mihon.domain.dictionary.service.DictionaryStorageGateway
@@ -42,6 +44,8 @@ class DictionaryMigrationJob(
 ) : CoroutineWorker(context, workerParams) {
 
     private val dictionaryRepository: DictionaryRepository = Injekt.get()
+    private val dictionaryLegacyRepository: DictionaryLegacyRepository = Injekt.get()
+    private val migrationStatusRepository: DictionaryMigrationStatusRepository = Injekt.get()
     private val archiveBuilder: DictionaryArchiveBuilder = Injekt.get()
     private val dictionaryStorageGateway: DictionaryStorageGateway = Injekt.get()
     private val notifier = DictionaryMigrationNotifier(context)
@@ -124,7 +128,7 @@ class DictionaryMigrationJob(
     }
 
     private suspend fun loadPendingDictionariesWithStatuses(): Pair<List<Dictionary>, Map<Long, DictionaryMigrationStatus>> {
-        val statusesByDictionaryId = dictionaryRepository.getAllMigrationStatuses()
+        val statusesByDictionaryId = migrationStatusRepository.getAllMigrationStatuses()
             .associateBy { it.dictionaryId }
 
         val dictionaries = dictionaryRepository.getAllDictionaries()
@@ -132,8 +136,13 @@ class DictionaryMigrationJob(
 
         val pending = dictionaries.filter { dictionary ->
             val status = statusesByDictionaryId[dictionary.id]
-            dictionary.backend == DictionaryBackend.LEGACY_DB ||
-                (status != null && status.state != DictionaryMigrationState.COMPLETE)
+            when {
+                dictionary.backend == DictionaryBackend.LEGACY_DB ->
+                    status?.state != DictionaryMigrationState.ERROR
+                status == null -> false
+                else -> status.state != DictionaryMigrationState.COMPLETE &&
+                    status.state != DictionaryMigrationState.ERROR
+            }
         }
 
         return pending to statusesByDictionaryId
@@ -146,7 +155,7 @@ class DictionaryMigrationJob(
     ) {
         val resumeAction = DictionaryMigrationRecovery.resumeAction(
             dictionary = dictionary,
-            counts = dictionaryRepository.getLegacyRowCounts(dictionary.id),
+            counts = dictionaryLegacyRepository.getLegacyRowCounts(dictionary.id),
         )
         when (resumeAction) {
             DictionaryMigrationResumeAction.MARK_COMPLETE -> {
@@ -206,7 +215,11 @@ class DictionaryMigrationJob(
                 total = total,
             )
 
-            val importOutcome = dictionaryStorageGateway.importDictionary(archive.archivePath, dictionary)
+            val importOutcome = dictionaryStorageGateway.importDictionary(
+                archivePath = archive.archivePath,
+                dictionaryId = dictionary.id,
+                dictionaryTitle = dictionary.title,
+            )
             val storagePath = importOutcome.storagePath
                 ?: throw IllegalStateException("Imported dictionary has no storage path")
             if (!importOutcome.success) {
@@ -261,11 +274,11 @@ class DictionaryMigrationJob(
 
     private suspend fun deleteLegacyRows(dictionaryId: Long) {
         withContext(Dispatchers.IO) {
-            dictionaryRepository.deleteKanjiMetaForDictionary(dictionaryId)
-            dictionaryRepository.deleteKanjiForDictionary(dictionaryId)
-            dictionaryRepository.deleteTermMetaForDictionary(dictionaryId)
-            dictionaryRepository.deleteTermsForDictionary(dictionaryId)
-            dictionaryRepository.deleteTagsForDictionary(dictionaryId)
+            dictionaryLegacyRepository.deleteKanjiMetaForDictionary(dictionaryId)
+            dictionaryLegacyRepository.deleteKanjiForDictionary(dictionaryId)
+            dictionaryLegacyRepository.deleteTermMetaForDictionary(dictionaryId)
+            dictionaryLegacyRepository.deleteTermsForDictionary(dictionaryId)
+            dictionaryLegacyRepository.deleteTagsForDictionary(dictionaryId)
         }
     }
 
@@ -277,7 +290,7 @@ class DictionaryMigrationJob(
             completed = completed,
             total = total,
         )
-        dictionaryRepository.deleteMigrationStatus(dictionary.id)
+        migrationStatusRepository.deleteMigrationStatus(dictionary.id)
     }
 
     private suspend fun updateStatus(
@@ -290,7 +303,7 @@ class DictionaryMigrationJob(
         error: String? = null,
     ) {
         val stageText = progressText ?: stageDisplayName(stage)
-        dictionaryRepository.upsertMigrationStatus(
+        migrationStatusRepository.upsertMigrationStatus(
             DictionaryMigrationStatus(
                 dictionaryId = dictionary.id,
                 state = state,

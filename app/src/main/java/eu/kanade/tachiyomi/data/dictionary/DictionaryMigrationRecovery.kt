@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.data.dictionary
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryLegacyRowCounts
+import mihon.domain.dictionary.model.DictionaryMigrationStatus
 import mihon.domain.dictionary.model.DictionaryMigrationState
 
 internal enum class DictionaryMigrationResumeAction {
@@ -27,7 +28,18 @@ internal object DictionaryMigrationRecovery {
         }
     }
 
-    fun hasPendingMigration(hasLegacyDictionaries: Boolean, states: List<DictionaryMigrationState>): Boolean {
-        return hasLegacyDictionaries || states.any { it != DictionaryMigrationState.COMPLETE }
+    fun hasPendingMigration(
+        legacyDictionaries: List<Dictionary>,
+        statuses: List<DictionaryMigrationStatus>,
+    ): Boolean {
+        val statusesByDictionaryId = statuses.associateBy { it.dictionaryId }
+        val hasPendingLegacy = legacyDictionaries.any { dictionary ->
+            statusesByDictionaryId[dictionary.id]?.state != DictionaryMigrationState.ERROR
+        }
+        val hasPendingStatuses = statuses.any { status ->
+            status.state != DictionaryMigrationState.COMPLETE &&
+                status.state != DictionaryMigrationState.ERROR
+        }
+        return hasPendingLegacy || hasPendingStatuses
     }
 }

@@ -59,6 +59,7 @@ import logcat.LogPriority
 import logcat.LogcatLogger
 import mihon.core.migration.Migrator
 import mihon.core.migration.migrations.migrations
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.ocr.repository.OcrRepository
 import mihon.telemetry.TelemetryConfig
@@ -191,9 +192,12 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     private fun scheduleDictionaryMigration(scope: androidx.lifecycle.LifecycleCoroutineScope) {
         scope.launch {
             val repository = Injekt.get<DictionaryRepository>()
+            val migrationStatusRepository = Injekt.get<DictionaryMigrationStatusRepository>()
+            val legacyDictionaries = repository.getLegacyDictionaries()
+            val statuses = migrationStatusRepository.getAllMigrationStatuses()
             val hasPendingMigration = DictionaryMigrationRecovery.hasPendingMigration(
-                hasLegacyDictionaries = repository.getLegacyDictionaries().isNotEmpty(),
-                states = repository.getAllMigrationStatuses().map { it.state },
+                legacyDictionaries = legacyDictionaries,
+                statuses = statuses,
             )
             if (hasPendingMigration && !DictionaryMigrationJob.isScheduledOrRunning(this@App)) {
                 DictionaryMigrationJob.enqueue(this@App)

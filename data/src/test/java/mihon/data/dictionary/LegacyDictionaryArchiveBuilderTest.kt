@@ -14,6 +14,7 @@ import mihon.domain.dictionary.model.DictionaryLegacyRowCounts
 import mihon.domain.dictionary.model.DictionaryTag
 import mihon.domain.dictionary.model.DictionaryTermExport
 import mihon.domain.dictionary.model.DictionaryTermMetaExport
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -21,13 +22,15 @@ import org.junit.jupiter.api.Test
 
 class LegacyDictionaryArchiveBuilderTest {
     private lateinit var repository: DictionaryRepository
+    private lateinit var legacyRepository: DictionaryLegacyRepository
     private lateinit var builder: LegacyDictionaryArchiveBuilder
     private lateinit var tempDir: File
 
     @BeforeEach
     fun setup() {
         repository = mockk()
-        builder = LegacyDictionaryArchiveBuilder(repository)
+        legacyRepository = mockk()
+        builder = LegacyDictionaryArchiveBuilder(repository, legacyRepository)
         tempDir = createTempDir(prefix = "legacy-dict-archive-test")
     }
 
@@ -59,14 +62,14 @@ class LegacyDictionaryArchiveBuilderTest {
                 score = 0,
             ),
         )
-        coEvery { repository.getLegacyRowCounts(1L) } returns DictionaryLegacyRowCounts(
+        coEvery { legacyRepository.getLegacyRowCounts(1L) } returns DictionaryLegacyRowCounts(
             tagCount = 1L,
             termCount = 1L,
             termMetaCount = 1L,
             kanjiCount = 0L,
             kanjiMetaCount = 0L,
         )
-        coEvery { repository.getTermsExportForDictionary(1L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getTermsExportForDictionary(1L, any(), 0L) } returns listOf(
             DictionaryTermExport(
                 expression = "食べる",
                 reading = "たべる",
@@ -78,17 +81,17 @@ class LegacyDictionaryArchiveBuilderTest {
                 termTags = "common",
             ),
         )
-        coEvery { repository.getTermsExportForDictionary(1L, any(), 1L) } returns emptyList()
-        coEvery { repository.getTermMetaExportForDictionary(1L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getTermsExportForDictionary(1L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getTermMetaExportForDictionary(1L, any(), 0L) } returns listOf(
             DictionaryTermMetaExport(
                 expression = "食べる",
                 mode = "freq",
                 dataJson = """{"value":12,"displayValue":"12"}""",
             ),
         )
-        coEvery { repository.getTermMetaExportForDictionary(1L, any(), 1L) } returns emptyList()
-        coEvery { repository.getKanjiExportForDictionary(1L, any(), any()) } returns emptyList()
-        coEvery { repository.getKanjiMetaExportForDictionary(1L, any(), any()) } returns emptyList()
+        coEvery { legacyRepository.getTermMetaExportForDictionary(1L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getKanjiExportForDictionary(1L, any(), any()) } returns emptyList()
+        coEvery { legacyRepository.getKanjiMetaExportForDictionary(1L, any(), any()) } returns emptyList()
 
         val output = File(tempDir, "dictionary.zip")
         val result = builder.buildArchive(dictionary, output.absolutePath)
@@ -123,14 +126,14 @@ class LegacyDictionaryArchiveBuilderTest {
         )
 
         coEvery { repository.getTagsForDictionary(2L) } returns emptyList()
-        coEvery { repository.getLegacyRowCounts(2L) } returns DictionaryLegacyRowCounts(
+        coEvery { legacyRepository.getLegacyRowCounts(2L) } returns DictionaryLegacyRowCounts(
             tagCount = 0L,
             termCount = 1L,
             termMetaCount = 1L,
             kanjiCount = 1L,
             kanjiMetaCount = 1L,
         )
-        coEvery { repository.getTermsExportForDictionary(2L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getTermsExportForDictionary(2L, any(), 0L) } returns listOf(
             DictionaryTermExport(
                 expression = "語る",
                 reading = "かたる",
@@ -142,16 +145,16 @@ class LegacyDictionaryArchiveBuilderTest {
                 termTags = null,
             ),
         )
-        coEvery { repository.getTermsExportForDictionary(2L, any(), 1L) } returns emptyList()
-        coEvery { repository.getTermMetaExportForDictionary(2L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getTermsExportForDictionary(2L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getTermMetaExportForDictionary(2L, any(), 0L) } returns listOf(
             DictionaryTermMetaExport(
                 expression = "語る",
                 mode = "pitch",
                 dataJson = """{"reading":"かたる","pitches":[{"position":2}]}""",
             ),
         )
-        coEvery { repository.getTermMetaExportForDictionary(2L, any(), 1L) } returns emptyList()
-        coEvery { repository.getKanjiExportForDictionary(2L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getTermMetaExportForDictionary(2L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getKanjiExportForDictionary(2L, any(), 0L) } returns listOf(
             DictionaryKanjiExport(
                 character = "日",
                 onyomi = "ニチ",
@@ -161,15 +164,15 @@ class LegacyDictionaryArchiveBuilderTest {
                 statsJson = """{"jlpt":"N5"}""",
             ),
         )
-        coEvery { repository.getKanjiExportForDictionary(2L, any(), 1L) } returns emptyList()
-        coEvery { repository.getKanjiMetaExportForDictionary(2L, any(), 0L) } returns listOf(
+        coEvery { legacyRepository.getKanjiExportForDictionary(2L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getKanjiMetaExportForDictionary(2L, any(), 0L) } returns listOf(
             DictionaryKanjiMetaExport(
                 character = "日",
                 mode = "freq",
                 dataJson = """{"value":1}""",
             ),
         )
-        coEvery { repository.getKanjiMetaExportForDictionary(2L, any(), 1L) } returns emptyList()
+        coEvery { legacyRepository.getKanjiMetaExportForDictionary(2L, any(), 1L) } returns emptyList()
 
         val output = File(tempDir, "structured.zip")
         builder.buildArchive(dictionary, output.absolutePath)

@@ -18,7 +18,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import mihon.domain.dictionary.model.DictionaryIndex
-import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.GlossaryElementAttributes
 import mihon.domain.dictionary.model.GlossaryEntry
 import mihon.domain.dictionary.model.GlossaryImageAttributes
@@ -26,30 +25,11 @@ import mihon.domain.dictionary.model.GlossaryNode
 import mihon.domain.dictionary.model.GlossaryTag
 import mihon.domain.dictionary.service.DictionaryParseException
 import mihon.domain.dictionary.service.DictionaryParser
-import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.StringReader
 
 class DictionaryParserImpl : DictionaryParser {
 
     private val jsonParser = Json { ignoreUnknownKeys = true }
-
-    private inline fun <T> parseBank(
-        stream: InputStream,
-        bankName: String,
-        crossinline readItem: (JsonReader) -> T,
-    ): Sequence<T> = sequence {
-        val reader = JsonReader(InputStreamReader(stream, Charsets.UTF_8))
-        try {
-            reader.beginArray()
-            while (reader.hasNext()) {
-                yield(readItem(reader))
-            }
-            reader.endArray()
-        } catch (e: Exception) {
-            throw DictionaryParseException("Failed to parse $bankName", e)
-        }
-    }
 
     override fun parseIndex(jsonString: String): DictionaryIndex {
         try {
@@ -87,9 +67,6 @@ class DictionaryParserImpl : DictionaryParser {
         }
     }
 
-    override fun parseTermBank(stream: InputStream, version: Int): Sequence<DictionaryTerm> =
-        parseBank(stream, "term_bank") { reader -> readSingleTerm(reader, version) }
-
     override fun parseGlossary(rawGlossary: String): List<GlossaryEntry> {
         if (rawGlossary.isBlank()) return emptyList()
 
@@ -110,93 +87,6 @@ class DictionaryParserImpl : DictionaryParser {
             }
         } catch (e: Exception) {
             throw DictionaryParseException("Failed to parse glossary", e)
-        }
-    }
-
-    private fun readSingleTerm(reader: JsonReader, version: Int): DictionaryTerm {
-        reader.beginArray()
-        val expression = reader.nextString()
-        val reading = reader.nextString()
-        val definitionTags = readStringOrArray(reader)
-        val rules = readStringOrArray(reader)
-        val score = reader.nextInt()
-
-        val glossary: List<GlossaryEntry>
-        val sequence: Long?
-        val termTags: String?
-
-        if (version == 1) {
-            val glossaryList = mutableListOf<GlossaryEntry>()
-            while (reader.hasNext()) {
-                glossaryList.add(GlossaryEntry.TextDefinition(reader.nextString()))
-            }
-            glossary = glossaryList
-            sequence = null
-            termTags = null
-        } else {
-            glossary = readGlossaryArray(reader)
-            sequence = if (reader.hasNext() && reader.peek() != JsonToken.END_ARRAY) {
-                readNullableLong(reader)
-            } else {
-                null
-            }
-            termTags = if (reader.hasNext() && reader.peek() != JsonToken.END_ARRAY) {
-                readStringOrArray(reader)
-            } else {
-                null
-            }
-        }
-
-        reader.endArray()
-
-        return DictionaryTerm(
-            dictionaryId = 0L,
-            expression = expression,
-            reading = reading,
-            definitionTags = definitionTags,
-            rules = rules,
-            score = score,
-            glossary = glossary,
-            sequence = sequence,
-            termTags = termTags,
-        )
-    }
-
-    private fun readStringOrArray(reader: JsonReader): String? {
-        return when (reader.peek()) {
-            JsonToken.NULL -> {
-                reader.nextNull()
-                null
-            }
-            JsonToken.STRING -> reader.nextString().takeIf { it.isNotEmpty() }
-            JsonToken.BEGIN_ARRAY -> {
-                val parts = mutableListOf<String>()
-                reader.beginArray()
-                while (reader.hasNext()) {
-                    parts.add(reader.nextString())
-                }
-                reader.endArray()
-                parts.toList().joinToString(" ").takeIf { it.isNotEmpty() }
-            }
-            else -> {
-                reader.skipValue()
-                null
-            }
-        }
-    }
-
-    private fun readNullableLong(reader: JsonReader): Long? {
-        return when (reader.peek()) {
-            JsonToken.NULL -> {
-                reader.nextNull()
-                null
-            }
-            JsonToken.NUMBER -> reader.nextLong()
-            JsonToken.STRING -> reader.nextString().toLongOrNull()
-            else -> {
-                reader.skipValue()
-                null
-            }
         }
     }
 

@@ -41,6 +41,7 @@ import eu.kanade.tachiyomi.data.dictionary.WorkManagerDictionaryImportCoordinato
 import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinator
 import eu.kanade.tachiyomi.domain.dictionary.DictionarySettingsCoordinatorImpl
 import mihon.data.ankidroid.AnkiDroidRepositoryImpl
+import mihon.data.dictionary.DictionarySearchGatewayImpl
 import mihon.data.dictionary.HoshiDictionaryStore
 import mihon.data.dictionary.LegacyDictionaryArchiveBuilder
 import mihon.data.dictionary.DictionaryParserImpl
@@ -53,9 +54,12 @@ import mihon.domain.ankidroid.repository.AnkiDroidRepository
 import mihon.domain.chapter.interactor.FilterChaptersForDownload
 import mihon.domain.dictionary.interactor.DictionaryInteractor
 import mihon.domain.dictionary.interactor.SearchDictionaryTerms
+import mihon.domain.dictionary.repository.DictionaryLegacyRepository
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 import mihon.domain.dictionary.service.DictionaryArchiveBuilder
 import mihon.domain.dictionary.service.DictionarySearchBackend
+import mihon.domain.dictionary.service.DictionarySearchGateway
 import mihon.domain.dictionary.service.DictionaryStorageGateway
 import mihon.domain.dictionary.service.DictionaryParser
 import mihon.domain.extensionrepo.interactor.CreateExtensionRepo
@@ -256,15 +260,20 @@ class DomainModule : InjektModule {
         addFactory { ToggleIncognito(get()) }
         addFactory { GetIncognitoState(get(), get(), get()) }
 
-        addSingletonFactory<DictionaryRepository> { DictionaryRepositoryImpl(get()) }
+        addSingletonFactory { DictionaryRepositoryImpl(get()) }
+        addSingletonFactory<DictionaryRepository> { get<DictionaryRepositoryImpl>() }
+        addSingletonFactory<DictionaryLegacyRepository> { get<DictionaryRepositoryImpl>() }
+        addSingletonFactory<DictionaryMigrationStatusRepository> { get<DictionaryRepositoryImpl>() }
         addSingletonFactory<DictionaryParser> { DictionaryParserImpl() }
         addSingletonFactory { HoshiDictionaryStore(get<Application>(), get(), get()) }
         addSingletonFactory<DictionarySearchBackend> { get<HoshiDictionaryStore>() }
         addSingletonFactory<DictionaryStorageGateway> { get<HoshiDictionaryStore>() }
-        addSingletonFactory { LegacyDictionaryArchiveBuilder(get()) }
+        addSingletonFactory { DictionarySearchGatewayImpl(get(), get()) }
+        addSingletonFactory<DictionarySearchGateway> { get<DictionarySearchGatewayImpl>() }
+        addSingletonFactory { LegacyDictionaryArchiveBuilder(get(), get()) }
         addSingletonFactory<DictionaryArchiveBuilder> { get<LegacyDictionaryArchiveBuilder>() }
         addSingletonFactory<DictionaryImportCoordinator> { WorkManagerDictionaryImportCoordinator(get<Application>()) }
-        addSingletonFactory<DictionarySettingsCoordinator> { DictionarySettingsCoordinatorImpl(get(), get()) }
+        addSingletonFactory<DictionarySettingsCoordinator> { DictionarySettingsCoordinatorImpl(get(), get(), get()) }
         addFactory { DictionaryInteractor(get()) }
         addFactory { SearchDictionaryTerms(get(), get()) }
 

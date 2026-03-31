@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryBackend
 import mihon.domain.dictionary.model.DictionaryTerm
@@ -49,14 +52,18 @@ class HoshiDictionaryStore(
 
     override suspend fun importDictionary(
         archivePath: String,
-        dictionary: Dictionary,
+        dictionaryId: Long,
+        dictionaryTitle: String,
     ): DictionaryStorageImportOutcome = withContext(Dispatchers.IO) {
-        val parent = getDictionaryStorageParent(dictionary.id)
+        assertUniqueDictionaryTitle(dictionaryId, dictionaryTitle)
+        val parent = getDictionaryStorageParent(dictionaryId)
         val result = hoshi.importDictionary(archivePath, parent.absolutePath)
-        val finalDir = parent.listFiles()?.firstOrNull { File(it, ".hoshidicts_1").exists() }
+        val finalDir = result.storagePath.takeIf { path ->
+            path.isNotBlank() && File(path, ".hoshidicts_1").exists()
+        }
         DictionaryStorageImportOutcome(
             success = result.success,
-            storagePath = finalDir?.absolutePath,
+            storagePath = finalDir,
             termCount = result.termCount,
             metaCount = result.metaCount,
             mediaCount = result.mediaCount,
@@ -248,18 +255,14 @@ class HoshiDictionaryStore(
                 ?: return@forEach
             val list = grouped.getOrPut(dictionaryId) { mutableListOf() }
             entry.frequencies.forEach { frequency ->
-                val data = buildString {
-                    append("{\"value\":")
-                    append(frequency.value)
-                    append(",\"displayValue\":")
-                    appendQuotedJsonString(frequency.displayValue)
-                    append("}")
-                }
                 list += DictionaryTermMeta(
                     dictionaryId = dictionaryId,
                     expression = termResult.expression,
                     mode = TermMetaMode.FREQUENCY,
-                    data = data,
+                    data = frequencyMetaJson(
+                        value = frequency.value,
+                        displayValue = frequency.displayValue,
+                    ),
                 )
             }
         }
@@ -267,18 +270,14 @@ class HoshiDictionaryStore(
         termResult.pitches.forEach { entry ->
             val dictionaryId = resolveDictionaryId(entry.dictName, allowedDictionaryIds, state) ?: return@forEach
             val list = grouped.getOrPut(dictionaryId) { mutableListOf() }
-            val data = buildString {
-                append("{\"reading\":")
-                appendQuotedJsonString(termResult.reading)
-                append(",\"pitches\":[")
-                append(entry.pitchPositions.joinToString(",") { "{\"position\":$it}" })
-                append("]}")
-            }
             list += DictionaryTermMeta(
                 dictionaryId = dictionaryId,
                 expression = termResult.expression,
                 mode = TermMetaMode.PITCH,
-                data = data,
+                data = pitchMetaJson(
+                    reading = termResult.reading,
+                    positions = entry.pitchPositions.toList(),
+                ),
             )
         }
 
@@ -310,11 +309,43 @@ class HoshiDictionaryStore(
             .lowercase()
     }
 
+    private suspend fun assertUniqueDictionaryTitle(dictionaryId: Long, dictionaryTitle: String) {
+        val normalizedTitle = normalizeDictionaryTitle(dictionaryTitle)
+        check(
+            dictionaryRepository.getAllDictionaries().none {
+                it.id != dictionaryId &&
+                    normalizeDictionaryTitle(it.title) == normalizedTitle
+            },
+        ) { "Dictionary title conflicts with an existing Hoshidicts-backed identity: $dictionaryTitle" }
+    }
+
     private fun parseGlossary(rawGlossary: String): List<GlossaryEntry> {
         if (rawGlossary.isBlank()) return emptyList()
 
         return runCatching { dictionaryParser.parseGlossary(rawGlossary) }
             .getOrDefault(emptyList())
+    }
+
+    private fun frequencyMetaJson(value: Int, displayValue: String): String {
+        return buildJsonObject {
+            put("value", value)
+            put("displayValue", displayValue)
+        }.toString()
+    }
+
+    private fun pitchMetaJson(reading: String, positions: List<Int>): String {
+        return buildJsonObject {
+            put("reading", reading)
+            put("pitches", buildJsonArray {
+                positions.forEach { position ->
+                    add(
+                        buildJsonObject {
+                            put("position", position)
+                        },
+                    )
+                }
+            })
+        }.toString()
     }
 
     private fun syntheticTermId(
@@ -324,21 +355,6 @@ class HoshiDictionaryStore(
     ): Long {
         val raw = "$dictionaryId|${termResult.expression}|${termResult.reading}|$glossary"
         return -raw.hashCode().toLong()
-    }
-
-    private fun StringBuilder.appendQuotedJsonString(value: String) {
-        append('"')
-        value.forEach { char ->
-            when (char) {
-                '\\' -> append("\\\\")
-                '"' -> append("\\\"")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> append(char)
-            }
-        }
-        append('"')
     }
 
     private data class SessionState(

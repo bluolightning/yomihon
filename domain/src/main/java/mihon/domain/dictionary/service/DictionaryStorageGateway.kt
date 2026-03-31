@@ -1,11 +1,10 @@
 package mihon.domain.dictionary.service
 
-import mihon.domain.dictionary.model.Dictionary
-
 interface DictionaryStorageGateway {
     suspend fun importDictionary(
         archivePath: String,
-        dictionary: Dictionary,
+        dictionaryId: Long,
+        dictionaryTitle: String,
     ): DictionaryStorageImportOutcome
 
     suspend fun validateImportedDictionary(

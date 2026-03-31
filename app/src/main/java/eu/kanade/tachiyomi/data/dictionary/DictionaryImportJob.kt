@@ -24,9 +24,7 @@ import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.archive.ArchiveReader
 import mihon.domain.dictionary.interactor.DictionaryInteractor
-import mihon.domain.dictionary.model.Dictionary
-import mihon.domain.dictionary.model.DictionaryBackend
-import mihon.domain.dictionary.model.DictionaryImportException
+import mihon.domain.dictionary.exception.DictionaryImportException
 import mihon.domain.dictionary.model.DictionaryIndex
 import mihon.domain.dictionary.service.DictionaryParseException
 import mihon.domain.dictionary.service.DictionaryParser
@@ -86,11 +84,7 @@ class DictionaryImportJob(
             cleanupPartialImport(importedDictionaryId)
             Result.failure()
         } catch (e: DictionaryImportException) {
-            val errorMessage = if (e.message == "already_imported") {
-                "Dictionary already imported"
-            } else {
-                e.message ?: "Failed to import dictionary"
-            }
+            val errorMessage = e.message ?: "Failed to import dictionary"
             logcat(LogPriority.WARN, e) { "Dictionary import error: $errorMessage" }
             cleanupPartialImport(importedDictionaryId)
             Result.failure()
@@ -121,10 +115,10 @@ class DictionaryImportJob(
 
     private suspend fun copyLocalArchive(uri: Uri): File = withContext(Dispatchers.IO) {
         val file = UniFile.fromUri(context, uri)
-            ?: throw DictionaryImportException("Failed to open dictionary file")
+            ?: throw DictionaryImportException.InvalidArchive("Failed to open dictionary file")
 
         if (!file.exists() || !file.isFile) {
-            throw DictionaryImportException("Invalid dictionary file")
+            throw DictionaryImportException.InvalidArchive("Invalid dictionary file")
         }
 
         val cacheDir = File(context.cacheDir, "dictionary_imports").apply { mkdirs() }
@@ -133,7 +127,7 @@ class DictionaryImportJob(
             destination.outputStream().buffered().use { output ->
                 input.copyTo(output)
             }
-        } ?: throw DictionaryImportException("Failed to read dictionary file")
+        } ?: throw DictionaryImportException.InvalidArchive("Failed to read dictionary file")
 
         destination
     }
@@ -143,7 +137,7 @@ class DictionaryImportJob(
         archiveFile: File,
     ): ImportOutcome {
         val indexJson = reader.getInputStream("index.json")?.bufferedReader()?.use { it.readText() }
-            ?: throw DictionaryImportException("index.json not found in dictionary archive")
+            ?: throw DictionaryImportException.InvalidArchive("index.json not found in dictionary archive")
 
         val index: DictionaryIndex = try {
             dictionaryParser.parseIndex(indexJson)
@@ -152,37 +146,23 @@ class DictionaryImportJob(
         }
 
         if (dictionaryInteractor.isDictionaryAlreadyImported(index.title, index.revision)) {
-            throw DictionaryImportException("already_imported")
+            throw DictionaryImportException.AlreadyImported
         }
 
         val styles = reader.getInputStream("styles.css")?.bufferedReader()?.use { it.readText() }
 
-        val dictionaryId = dictionaryInteractor.createDictionary(
+        val dictionary = dictionaryInteractor.createDictionary(
             index = index,
             styles = styles,
-            backend = DictionaryBackend.HOSHI,
-            storageReady = false,
         )
 
-        val dictionary = Dictionary(
-            id = dictionaryId,
-            title = index.title,
-            revision = index.revision,
-            version = index.effectiveVersion,
-            author = index.author,
-            url = index.url,
-            description = index.description,
-            attribution = index.attribution,
-            styles = styles,
-            sourceLanguage = index.sourceLanguage,
-            targetLanguage = index.targetLanguage,
-            backend = DictionaryBackend.HOSHI,
-            storageReady = false,
+        val importOutcome = dictionaryStorageGateway.importDictionary(
+            archivePath = archiveFile.absolutePath,
+            dictionaryId = dictionary.id,
+            dictionaryTitle = dictionary.title,
         )
-
-        val importOutcome = dictionaryStorageGateway.importDictionary(archiveFile.absolutePath, dictionary)
         if (!importOutcome.success || importOutcome.storagePath.isNullOrBlank()) {
-            throw DictionaryImportException("Failed to import dictionary into hoshidicts")
+            throw DictionaryImportException.ImportFailed("Failed to import dictionary into hoshidicts")
         }
 
         dictionaryInteractor.updateDictionary(
@@ -195,8 +175,7 @@ class DictionaryImportJob(
         dictionaryStorageGateway.refreshSearchSession()
 
         return ImportOutcome(
-            dictionaryId = dictionaryId,
-            title = index.title,
+            dictionaryId = dictionary.id,
         )
     }
 
@@ -284,6 +263,5 @@ class DictionaryImportJob(
 
     private data class ImportOutcome(
         val dictionaryId: Long,
-        val title: String,
     )
 }

@@ -27,30 +27,26 @@ class DictionaryInteractor(
     suspend fun createDictionary(
         index: DictionaryIndex,
         styles: String? = null,
-        backend: DictionaryBackend = DictionaryBackend.LEGACY_DB,
-        storagePath: String? = null,
-        storageReady: Boolean = false,
-    ): Long {
+    ): Dictionary {
         dictionaryRepository.bumpAllPrioritiesUp()
 
-        return dictionaryRepository.insertDictionary(
-            Dictionary(
-                title = index.title,
-                revision = index.revision,
-                version = index.effectiveVersion,
-                author = index.author,
-                url = index.url,
-                description = index.description,
-                attribution = index.attribution,
-                styles = styles,
-                sourceLanguage = index.sourceLanguage,
-                targetLanguage = index.targetLanguage,
-                priority = 1,
-                backend = backend,
-                storagePath = storagePath,
-                storageReady = storageReady,
-            ),
+        val dictionary = Dictionary(
+            title = index.title,
+            revision = index.revision,
+            version = index.effectiveVersion,
+            author = index.author,
+            url = index.url,
+            description = index.description,
+            attribution = index.attribution,
+            styles = styles,
+            sourceLanguage = index.sourceLanguage,
+            targetLanguage = index.targetLanguage,
+            priority = 1,
+            backend = DictionaryBackend.HOSHI,
+            storageReady = false,
         )
+        val dictionaryId = dictionaryRepository.insertDictionary(dictionary)
+        return dictionary.copy(id = dictionaryId)
     }
 
     suspend fun deleteDictionary(dictionaryId: Long) {

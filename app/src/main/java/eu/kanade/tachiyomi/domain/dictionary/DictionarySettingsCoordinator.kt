@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import eu.kanade.tachiyomi.data.dictionary.DictionaryImportCoordinator
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryMigrationStatus
+import mihon.domain.dictionary.repository.DictionaryMigrationStatusRepository
 import mihon.domain.dictionary.repository.DictionaryRepository
 
 interface DictionarySettingsCoordinator {
@@ -21,6 +22,7 @@ interface DictionarySettingsCoordinator {
 
 internal class DictionarySettingsCoordinatorImpl(
     private val dictionaryRepository: DictionaryRepository,
+    private val dictionaryMigrationStatusRepository: DictionaryMigrationStatusRepository,
     private val dictionaryImportCoordinator: DictionaryImportCoordinator,
 ) : DictionarySettingsCoordinator {
 
@@ -29,7 +31,7 @@ internal class DictionarySettingsCoordinatorImpl(
     }
 
     override fun observeMigrationStatuses(): Flow<List<DictionaryMigrationStatus>> {
-        return dictionaryRepository.subscribeToMigrationStatuses()
+        return dictionaryMigrationStatusRepository.subscribeToMigrationStatuses()
     }
 
     override fun isRunningFlow(): Flow<Boolean> {
