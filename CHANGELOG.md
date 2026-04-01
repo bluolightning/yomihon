@@ -10,7 +10,7 @@ The format is a modified version of [Keep a Changelog](https://keepachangelog.co
 - `Fixed` - for any bug fixes.
 - `Other` - for technical stuff.
 
-## [v0.2.3] - 2026-03-31
+## [v0.2.4] - 2026-03-31
 
 ### Added
 - Search filter presets
@@ -102,8 +102,8 @@ The format is a modified version of [Keep a Changelog](https://keepachangelog.co
 - The full changelog for Mihon releases is available in their [repository](https://github.com/mihonapp/mihon/blob/main/CHANGELOG.md).
 
 
-[unreleased]: https://github.com/yomihon/yomihon/compare/v0.2.3...main
-[v0.2.3]: https://github.com/yomihon/yomihon/compare/v0.2.2...v0.2.3
+[unreleased]: https://github.com/yomihon/yomihon/compare/v0.2.4...main
+[v0.2.3]: https://github.com/yomihon/yomihon/compare/v0.2.2...v0.2.4
 [v0.2.2]: https://github.com/yomihon/yomihon/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/yomihon/yomihon/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/yomihon/yomihon/compare/v0.1.1...v0.2.0
