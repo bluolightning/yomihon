@@ -66,7 +66,10 @@ class DictionarySearchGatewayImpl(
                 }
                 if (partition.hoshiIds.isNotEmpty()) {
                     addAll(
-                        dictionarySearchBackend.getTermMeta(listOf(expression), partition.hoshiIds)[expression].orEmpty()
+                        dictionarySearchBackend.getTermMeta(
+                            listOf(expression),
+                            partition.hoshiIds,
+                        )[expression].orEmpty()
                             .filter { it.dictionaryId in requestedIds },
                     )
                 }
@@ -78,5 +81,4 @@ class DictionarySearchGatewayImpl(
         val dictionariesById = dictionaryRepository.getAllDictionaries().associateBy { it.id }
         return partitionDictionaryIdsByBackend(dictionaryIds, dictionariesById)
     }
-
 }
