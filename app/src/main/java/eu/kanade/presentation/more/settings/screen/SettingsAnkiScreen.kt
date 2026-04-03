@@ -175,62 +175,74 @@ object SettingsAnkiScreen : SearchableSettings {
             ),
         )
 
+        // Static field labels
         val appFieldResources = mapOf(
             "expression" to MR.strings.anki_field_expression,
             "frequency" to MR.strings.anki_field_frequency,
             "freqAvgValue" to MR.strings.anki_field_frequency_average_value,
             "freqLowestValue" to MR.strings.anki_field_frequency_lowest_value,
             "furigana" to MR.strings.anki_field_furigana,
-            "glossary" to MR.strings.anki_field_glossary,
+            "glossary-first" to MR.strings.anki_field_glossary_first,
+            "glossary-all" to MR.strings.anki_field_glossary_all,
             "picture" to MR.strings.anki_field_picture,
             "pitchAccent" to MR.strings.anki_field_pitch_accent,
             "reading" to MR.strings.anki_field_reading,
             "sentence" to MR.strings.anki_field_sentence,
         )
 
-        val dynamicFields = state.dictionaries
+        // Dynamic fields: per-frequency-dictionary and per-term-dictionary glossary
+        val freqDynamicFields = state.dictionaries
             .filter { it.id in state.freqDictionaryIds }
             .map { "freqSingleValue_${it.id}" }
-        val allAppFields = AnkiSettingsScreenModel.APP_FIELDS.flatMap {
-            if (it == "freqLowestValue") {
-                listOf(it) + dynamicFields
-            } else {
-                listOf(it)
+
+        val glossaryDynamicFields = state.dictionaries
+            .filter { it.id in state.termDictionaryIds }
+            .map { "glossary-${it.title.trim()}" }
+
+        // Build final ordered list: insert freq fields after freqLowestValue, glossary fields after glossary-all
+        val allAppFields = AnkiSettingsScreenModel.APP_FIELDS.flatMap { field ->
+            when (field) {
+                "freqLowestValue" -> listOf(field) + freqDynamicFields
+                "glossary-all" -> listOf(field) + glossaryDynamicFields
+                else -> listOf(field)
+            }
+        }
+
+        /**
+         * Resolves a human-readable label for any app field name.
+         */
+        @Composable
+        fun resolveFieldLabel(appField: String): String = when {
+            appField.isEmpty() -> stringResource(MR.strings.anki_field_empty)
+            appField.startsWith("freqSingleValue_") -> {
+                val dictId = appField.substringAfter("freqSingleValue_").toLongOrNull()
+                val dict = state.dictionaries.find { it.id == dictId }
+                if (dict != null) {
+                    stringResource(MR.strings.anki_field_frequency_single_value, dict.title)
+                } else {
+                    appField
+                }
+            }
+            appField.startsWith("glossary-") && appField !in appFieldResources -> {
+                val dictName = appField.removePrefix("glossary-")
+                stringResource(MR.strings.anki_field_glossary_dictionary, dictName)
+            }
+            else -> {
+                val resId = appFieldResources[appField]
+                if (resId != null) stringResource(resId) else appField
             }
         }
 
         state.modelFields.forEach { ankiField ->
-            val currentMapping = state.fieldMappings[ankiField] ?: ""
+            // Backward compat: migrate old "glossary" mapping -> "glossary-first"
+            val rawMapping = state.fieldMappings[ankiField] ?: ""
+            val currentMapping = if (rawMapping == "glossary") "glossary-first" else rawMapping
 
             val options = (listOf("") + allAppFields).associateWith { appField ->
-                when {
-                    appField.isEmpty() -> stringResource(MR.strings.anki_field_empty)
-                    appField.startsWith("freqSingleValue_") -> {
-                        val dictId = appField.substringAfter("freqSingleValue_").toLongOrNull()
-                        val dict = state.dictionaries.find { it.id == dictId }
-                        if (dict != null) {
-                            stringResource(MR.strings.anki_field_frequency_single_value, dict.title)
-                        } else {
-                            appField
-                        }
-                    }
-                    else -> stringResource(appFieldResources[appField] ?: MR.strings.anki_field_empty)
-                }
+                resolveFieldLabel(appField)
             }.toImmutableMap()
 
-            val subtitleLabel = when {
-                currentMapping.isEmpty() -> stringResource(MR.strings.anki_field_empty)
-                currentMapping.startsWith("freqSingleValue_") -> {
-                    val dictId = currentMapping.substringAfter("freqSingleValue_").toLongOrNull()
-                    val dict = state.dictionaries.find { it.id == dictId }
-                    if (dict != null) {
-                        stringResource(MR.strings.anki_field_frequency_single_value, dict.title)
-                    } else {
-                        currentMapping
-                    }
-                }
-                else -> stringResource(appFieldResources[currentMapping] ?: MR.strings.anki_field_empty)
-            }
+            val subtitleLabel = resolveFieldLabel(currentMapping)
 
             mappingItems.add(
                 Preference.PreferenceItem.BasicListPreference(

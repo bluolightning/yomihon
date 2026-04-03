@@ -23,7 +23,8 @@ import mihon.domain.dictionary.interactor.SearchDictionaryTerms
 import mihon.domain.dictionary.model.Dictionary
 import mihon.domain.dictionary.model.DictionaryTerm
 import mihon.domain.dictionary.model.DictionaryTermMeta
-import mihon.domain.dictionary.model.toDictionaryTermCard
+import mihon.domain.dictionary.model.buildGlossaryHtmlBundle
+import mihon.domain.dictionary.model.createGroupedTermCard
 import mihon.domain.dictionary.service.toHtml
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
@@ -215,70 +216,83 @@ class DictionarySearchScreenModel(
         mutableState.update { it.copy(selectedTerm = term) }
     }
 
-    fun addToAnki(term: DictionaryTerm, pictureUri: Uri? = null) {
+    fun addGroupToAnki(terms: List<DictionaryTerm>, pictureUri: Uri? = null) {
+        if (terms.isEmpty()) return
         screenModelScope.launch {
-            val dictionary = state.value.dictionaries
-                .firstOrNull { it.id == term.dictionaryId }
-            val dictionaryName = dictionary?.title.orEmpty()
-            val styles = dictionary?.styles
-            val glossaryHtml = term.glossary.toHtml(styles)
+            try {
+                val expression = terms.first().expression
+                val reading = terms.first().reading
+                val dicts = state.value.dictionaries
 
-            // Determine sentence: use query unless it matches the exported word, in which case it's just a duplicate
-            val query = state.value.query
-            val sentence = if (query.isNotBlank() && query != term.expression) query else ""
-
-            val termMeta = state.value.results?.termMetaMap?.get(term.expression) ?: emptyList()
-            val pitchAccentSvg = PitchAccentFormatter.formatPitchAccentSvg(termMeta, term.reading)
-            val frequencyText = formatFrequencyText(termMeta, term.reading)
-            val pictureUrl = pictureUri?.toString() ?: ""
-
-            val frequencies = FrequencyFormatter.parseFrequencies(termMeta, term.reading)
-            val numericValues = frequencies.mapNotNull { it.numericFrequency }
-
-            val minValuesPerDict = frequencies
-                .filter { it.numericFrequency != null }
-                .groupBy { it.dictionaryId }
-                .mapValues { (_, dictFrequencies) -> dictFrequencies.minOf { it.numericFrequency!! } }
-
-            val avgFreq = minValuesPerDict.values
-                .takeIf { it.isNotEmpty() }
-                ?.average()
-                ?.toInt()
-                ?.toString()
-                ?: ""
-            val minFreq = numericValues.minOrNull()?.toString() ?: ""
-            val singleFreqValues = minValuesPerDict.mapValues { it.value.toString() }
-
-            val card = term.toDictionaryTermCard(
-                dictionaryName = dictionaryName,
-                glossaryHtml = glossaryHtml,
-                sentence = sentence,
-                pitchAccent = pitchAccentSvg,
-                frequency = frequencyText,
-                pictureUrl = pictureUrl,
-                freqAvgValue = avgFreq,
-                freqLowestValue = minFreq,
-                singleFreqValues = singleFreqValues,
-            )
-
-            when (val result = addDictionaryCard(card)) {
-                AnkiDroidRepository.Result.Added -> {
-                    // Mark expression as existing so the icon updates immediately
-                    mutableState.update {
-                        it.copy(existingTermExpressions = it.existingTermExpressions + term.expression)
-                    }
-                    _events.send(Event.ShowMessage(UiMessage.Resource(MR.strings.anki_add_success)))
+                // Build all glossary HTML variants in one pass
+                val glossaryHtml = buildGlossaryHtmlBundle(terms, dicts) { term, styles ->
+                    term.glossary.toHtml(styles)
                 }
-                AnkiDroidRepository.Result.Duplicate -> {
-                    _events.send(Event.ShowMessage(UiMessage.Resource(MR.strings.anki_add_duplicate)))
+
+                // Shared metadata
+                val query = state.value.query
+                val sentence = if (query.isNotBlank() && query != expression) query else ""
+                val termMeta = state.value.results?.termMetaMap?.get(expression) ?: emptyList()
+                val pitchAccentSvg = PitchAccentFormatter.formatPitchAccentSvg(termMeta, reading)
+                val frequencyText = formatFrequencyText(termMeta, reading)
+                val pictureUrl = pictureUri?.toString() ?: ""
+
+                val frequencies = FrequencyFormatter.parseFrequencies(termMeta, reading)
+                val numericValues = frequencies.mapNotNull { it.numericFrequency }
+                val minValuesPerDict = frequencies
+                    .filter { it.numericFrequency != null }
+                    .groupBy { it.dictionaryId }
+                    .mapValues { (_, dictFrequencies) -> dictFrequencies.minOf { it.numericFrequency!! } }
+
+                val avgFreq = minValuesPerDict.values
+                    .takeIf { it.isNotEmpty() }
+                    ?.average()
+                    ?.toInt()
+                    ?.toString()
+                    ?: ""
+                val minFreq = numericValues.minOrNull()?.toString() ?: ""
+                val singleFreqValues = minValuesPerDict.mapValues { it.value.toString() }
+
+                val card = createGroupedTermCard(
+                    expression = expression,
+                    reading = reading,
+                    terms = terms,
+                    dictionaries = dicts,
+                    glossaryHtml = glossaryHtml,
+                    sentence = sentence,
+                    pitchAccent = pitchAccentSvg,
+                    frequency = frequencyText,
+                    pictureUrl = pictureUrl,
+                    freqAvgValue = avgFreq,
+                    freqLowestValue = minFreq,
+                    singleFreqValues = singleFreqValues,
+                )
+
+                handleAnkiResult(addDictionaryCard(card), expression)
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to add term group to Anki" }
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.anki_add_failed)))
+            }
+        }
+    }
+
+    private suspend fun handleAnkiResult(result: AnkiDroidRepository.Result, expression: String) {
+        when (result) {
+            AnkiDroidRepository.Result.Added -> {
+                mutableState.update {
+                    it.copy(existingTermExpressions = it.existingTermExpressions + expression)
                 }
-                AnkiDroidRepository.Result.NotAvailable -> {
-                    _events.send(Event.ShowError(UiMessage.Resource(MR.strings.anki_add_not_available)))
-                }
-                is AnkiDroidRepository.Result.Error -> {
-                    logcat(LogPriority.ERROR, result.throwable)
-                    _events.send(Event.ShowError(UiMessage.Resource(MR.strings.anki_add_failed)))
-                }
+                _events.send(Event.ShowMessage(UiMessage.Resource(MR.strings.anki_add_success)))
+            }
+            AnkiDroidRepository.Result.Duplicate -> {
+                _events.send(Event.ShowMessage(UiMessage.Resource(MR.strings.anki_add_duplicate)))
+            }
+            AnkiDroidRepository.Result.NotAvailable -> {
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.anki_add_not_available)))
+            }
+            is AnkiDroidRepository.Result.Error -> {
+                logcat(LogPriority.ERROR, result.throwable)
+                _events.send(Event.ShowError(UiMessage.Resource(MR.strings.anki_add_failed)))
             }
         }
     }

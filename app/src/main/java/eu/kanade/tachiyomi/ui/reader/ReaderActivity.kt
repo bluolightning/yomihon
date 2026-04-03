@@ -644,11 +644,10 @@ class ReaderActivity : BaseActivity() {
                             searchState = searchState,
                             onQueryChange = dictionarySearchScreenModel::updateQuery,
                             onSearch = dictionarySearchScreenModel::search,
-                            onTermClick = { term ->
-                                dictionarySearchScreenModel.selectTerm(term)
+                            onTermGroupClick = { terms ->
                                 lifecycleScope.launchIO {
                                     val uri = viewModel.getCurrentPageUri()
-                                    dictionarySearchScreenModel.addToAnki(term, uri)
+                                    dictionarySearchScreenModel.addGroupToAnki(terms, uri)
                                 }
                             },
                         )

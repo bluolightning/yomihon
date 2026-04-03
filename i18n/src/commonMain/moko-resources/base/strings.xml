@@ -1166,7 +1166,9 @@
     <string name="anki_field_reading">Reading</string>
     <string name="anki_field_furigana">Furigana</string>
     <string name="anki_field_expression">Expression</string>
-    <string name="anki_field_glossary">Glossary</string>
+    <string name="anki_field_glossary_first">Glossary (First Dict)</string>
+    <string name="anki_field_glossary_all">Glossary (All Dicts)</string>
+    <string name="anki_field_glossary_dictionary">Glossary (%s)</string>
     <string name="anki_field_sentence">Sentence</string>
     <string name="anki_field_pitch_accent">Pitch Accent</string>
     <string name="anki_field_frequency">Frequency (All)</string>

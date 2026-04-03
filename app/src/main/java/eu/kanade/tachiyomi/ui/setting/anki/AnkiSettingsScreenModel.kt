@@ -53,10 +53,14 @@ class AnkiSettingsScreenModel(
                 // Load dictionaries for dictionary-specific labels
                 val dictionaries = dictionaryInteractor.getAllDictionaries()
                 val freqDictionaryIds = dictionaryInteractor.getFreqDictionaryIds().toSet()
+                val termDictionaryIds = dictionaries
+                    .map { it.id }
+                    .toSet() - freqDictionaryIds
                 mutableState.update {
                     it.copy(
                         dictionaries = dictionaries,
                         freqDictionaryIds = freqDictionaryIds,
+                        termDictionaryIds = termDictionaryIds,
                     )
                 }
             } catch (e: Exception) {
@@ -215,6 +219,7 @@ class AnkiSettingsScreenModel(
         val modelFields: List<String> = emptyList(),
         val dictionaries: List<Dictionary> = emptyList(),
         val freqDictionaryIds: Set<Long> = emptySet(),
+        val termDictionaryIds: Set<Long> = emptySet(),
         val selectedDeckId: Long = -1L,
         val selectedModelId: Long = -1L,
         val deckName: String = "Yomihon",
@@ -231,7 +236,8 @@ class AnkiSettingsScreenModel(
             "freqAvgValue",
             "freqLowestValue",
             "furigana",
-            "glossary",
+            "glossary-first",
+            "glossary-all",
             "picture",
             "pitchAccent",
             "reading",

@@ -1,5 +1,8 @@
 package eu.kanade.presentation.dictionary.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,7 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -490,8 +496,65 @@ private fun DetailsNode(
     onLinkClick: (String) -> Unit,
     textStyle: TextStyle,
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Separate summary from body children
+    val summaryNode = node.children.firstOrNull {
+        it is GlossaryNode.Element && it.tag == GlossaryTag.Summary
+    } as? GlossaryNode.Element
+    val bodyChildren = node.children.filter {
+        !(it is GlossaryNode.Element && it.tag == GlossaryTag.Summary)
+    }
+
     Column {
-        node.children.forEach { child -> StructuredNode(child, indentLevel + 1, parsedCss, onLinkClick, textStyle) }
+        // Clickable summary row with expand/collapse indicator
+        Row(
+            modifier = Modifier
+                .clickable { isExpanded = !isExpanded }
+                .padding(start = bulletIndent(indentLevel), top = 2.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (isExpanded) "▼ " else "▶ ",
+                style = textStyle.copy(fontSize = textStyle.fontSize * 0.75f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 4.dp),
+            )
+            if (summaryNode != null) {
+                val cssStyleMap = getCssStyles(summaryNode.attributes.dataAttributes, parsedCss)
+                val combinedStyleMap = cssStyleMap + summaryNode.attributes.style
+                val summaryStyle = applyTypography(
+                    textStyle.copy(fontWeight = FontWeight.SemiBold),
+                    combinedStyleMap,
+                )
+                val summaryText = summaryNode.children.collectText()
+                TextWithReading(
+                    formattedText = summaryText,
+                    style = summaryStyle,
+                    furiganaFontSize = summaryStyle.fontSize * 0.60f,
+                )
+            } else {
+                Text(
+                    text = "Details",
+                    style = textStyle.copy(fontWeight = FontWeight.SemiBold),
+                )
+            }
+        }
+
+        // Collapsible body content
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            Column(
+                modifier = Modifier.padding(start = bulletIndent(indentLevel + 1)),
+            ) {
+                bodyChildren.forEach { child ->
+                    StructuredNode(child, indentLevel + 1, parsedCss, onLinkClick, textStyle)
+                }
+            }
+        }
     }
 }
 

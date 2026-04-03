@@ -36,7 +36,7 @@ fun OcrResultBottomSheet(
     searchState: DictionarySearchScreenModel.State,
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
-    onTermClick: (DictionaryTerm) -> Unit,
+    onTermGroupClick: (List<DictionaryTerm>) -> Unit,
 ) {
     // Automatically search dictionary for the OCR text
     LaunchedEffect(text) {
@@ -96,7 +96,7 @@ fun OcrResultBottomSheet(
                         enabledDictionaryIds = searchState.enabledDictionaryIds.toSet(),
                         termMetaMap = searchState.results?.termMetaMap ?: emptyMap(),
                         existingTermExpressions = searchState.existingTermExpressions,
-                        onTermClick = onTermClick,
+                        onTermGroupClick = onTermGroupClick,
                         onQueryChange = onQueryChange,
                         onSearch = onSearch,
                         onCopyText = onCopyText,
