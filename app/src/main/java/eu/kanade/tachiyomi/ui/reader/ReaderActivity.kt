@@ -175,6 +175,17 @@ class ReaderActivity : BaseActivity() {
         isTapExitEnabled = false
     }
 
+    private fun screenRectToDialogRootRect(rect: android.graphics.RectF): android.graphics.RectF {
+        val location = IntArray(2)
+        binding.dialogRoot.getLocationOnScreen(location)
+        return android.graphics.RectF(
+            rect.left - location[0],
+            rect.top - location[1],
+            rect.right - location[0],
+            rect.bottom - location[1],
+        )
+    }
+
     var isScrollingThroughPages = false
         private set
 
@@ -941,6 +952,14 @@ class ReaderActivity : BaseActivity() {
                 }
             }
         }
+    }
+
+    fun showOcrResult(
+        text: String,
+        anchorRectOnScreen: android.graphics.RectF? = null,
+    ) {
+        lastOcrSelectionRect = anchorRectOnScreen?.let(::screenRectToDialogRootRect)
+        viewModel.showOcrResult(text)
     }
 
     /**

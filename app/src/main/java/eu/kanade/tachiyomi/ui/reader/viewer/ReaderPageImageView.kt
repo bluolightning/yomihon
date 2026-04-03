@@ -41,6 +41,7 @@ import eu.kanade.tachiyomi.data.coil.customDecoder
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonSubsamplingImageView
 import eu.kanade.tachiyomi.util.system.animatorDurationScale
 import eu.kanade.tachiyomi.util.view.isVisibleOnScreen
+import mihon.domain.ocr.model.OcrBoundingBox
 import mihon.domain.ocr.model.OcrPageResult
 import okio.BufferedSource
 import tachiyomi.core.common.util.system.ImageUtil
@@ -76,7 +77,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
     var onImageLoadError: ((Throwable?) -> Unit)? = null
     var onScaleChanged: ((newScale: Float) -> Unit)? = null
     var onViewClicked: (() -> Unit)? = null
-    var onOcrRegionClicked: ((String) -> Unit)? = null
+    var onOcrRegionClicked: ((String, RectF?) -> Unit)? = null
 
     /**
      * For automatic background. Will be set as background color when [onImageLoaded] is called.
@@ -438,7 +439,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         val sourcePoint = localPointToSourcePoint(localX, localY) ?: return false
         val region = result.findRegionAt(sourcePoint.x, sourcePoint.y) ?: return false
 
-        onOcrRegionClicked?.invoke(region.text)
+        onOcrRegionClicked?.invoke(region.text, boundingBoxToScreenRect(region.boundingBox, result))
         return true
     }
 
@@ -482,6 +483,47 @@ open class ReaderPageImageView @JvmOverloads constructor(
         }
     }
 
+    private fun boundingBoxToScreenRect(
+        boundingBox: OcrBoundingBox,
+        pageResult: OcrPageResult,
+    ): RectF? {
+        val localRect = when (val currentPageView = pageView) {
+            is SubsamplingScaleImageView -> {
+                if (!currentPageView.isReady) return null
+                val sourceRect = boundingBox.toSourceRect(pageResult)
+                val topLeft = currentPageView.sourceToViewCoord(sourceRect.left, sourceRect.top) ?: return null
+                val bottomRight = currentPageView.sourceToViewCoord(sourceRect.right, sourceRect.bottom) ?: return null
+                RectF(
+                    minOf(topLeft.x, bottomRight.x),
+                    minOf(topLeft.y, bottomRight.y),
+                    maxOf(topLeft.x, bottomRight.x),
+                    maxOf(topLeft.y, bottomRight.y),
+                )
+            }
+            is ImageView -> {
+                val drawable = currentPageView.drawable ?: return null
+                val sourceRect = boundingBox.toSourceRect(
+                    imageWidth = drawable.intrinsicWidth,
+                    imageHeight = drawable.intrinsicHeight,
+                )
+                RectF(sourceRect).also(currentPageView.imageMatrix::mapRect)
+            }
+            else -> return null
+        }
+
+        val screenLocation = IntArray(2)
+        val windowLocation = IntArray(2)
+        getLocationOnScreen(screenLocation)
+        getLocationInWindow(windowLocation)
+
+        return RectF(
+            localRect.left + screenLocation[0] - windowLocation[0],
+            localRect.top + screenLocation[1] - windowLocation[1],
+            localRect.right + screenLocation[0] - windowLocation[0],
+            localRect.bottom + screenLocation[1] - windowLocation[1],
+        )
+    }
+
     private fun Int.getSystemScaledDuration(): Int {
         return (this * context.animatorDurationScale).toInt().coerceAtLeast(1)
     }
@@ -505,3 +547,22 @@ open class ReaderPageImageView @JvmOverloads constructor(
 }
 
 private const val MAX_ZOOM_SCALE = 5F
+
+private fun OcrBoundingBox.toSourceRect(pageResult: OcrPageResult): RectF {
+    return toSourceRect(
+        imageWidth = pageResult.imageWidth,
+        imageHeight = pageResult.imageHeight,
+    )
+}
+
+private fun OcrBoundingBox.toSourceRect(
+    imageWidth: Int,
+    imageHeight: Int,
+): RectF {
+    return RectF(
+        left * imageWidth,
+        top * imageHeight,
+        right * imageWidth,
+        bottom * imageHeight,
+    )
+}

@@ -90,8 +90,8 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { error -> setError(error) }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
-        frame.onOcrRegionClicked = { text ->
-            viewer.activity.viewModel.showOcrResult(text)
+        frame.onOcrRegionClicked = { text, anchorRect ->
+            viewer.activity.showOcrResult(text, anchorRect)
         }
     }
 

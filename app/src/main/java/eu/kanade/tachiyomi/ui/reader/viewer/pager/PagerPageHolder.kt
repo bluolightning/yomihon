@@ -67,9 +67,8 @@ class PagerPageHolder(
     private var loadJob: Job? = null
 
     init {
-        // TODO: Based on setting, use bottom sheet or a popup
-        onOcrRegionClicked = { text ->
-            viewer.activity.viewModel.showOcrResult(text)
+        onOcrRegionClicked = { text, anchorRect ->
+            viewer.activity.showOcrResult(text, anchorRect)
         }
         loadJob = scope.launch { loadPageAndProcessStatus() }
     }
