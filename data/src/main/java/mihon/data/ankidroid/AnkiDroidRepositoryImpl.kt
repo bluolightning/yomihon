@@ -131,11 +131,7 @@ class AnkiDroidRepositoryImpl(
             } else if (appField == "audio") {
                 audioFilename?.let { "[sound:$it]" }.orEmpty()
             } else if (appField == "furigana") {
-                if (card.reading.isNotBlank() && card.reading != card.expression) {
-                    "<ruby>${card.expression}<rt>${card.reading}</rt></ruby>"
-                } else {
-                    card.expression
-                }
+                formatFurigana(card.expression, card.reading)
             } else if (appField != null) {
                 card.getFieldValue(appField)
             } else {
@@ -429,4 +425,128 @@ b{color: #5586cd}
 }
 """
     }
+}
+
+private data class ExpressionToken(
+    val value: String,
+    val hasKanji: Boolean,
+)
+
+private data class FuriganaParseResult(
+    val html: String,
+    val nextReadingIndex: Int,
+)
+
+internal fun formatFurigana(expression: String, reading: String): String {
+    if (reading.isBlank() || reading == expression) {
+        return expression
+    }
+
+    val tokens = tokenizeExpression(expression)
+    if (tokens.none(ExpressionToken::hasKanji)) {
+        return expression
+    }
+
+    if (tokens.size == 1 && tokens[0].hasKanji) {
+        return "<ruby>$expression<rt>$reading</rt></ruby>"
+    }
+
+    val normalizedReading = reading.normalizeKana()
+    val formatted = buildFurigana(tokens, reading, normalizedReading, tokenIndex = 0, readingIndex = 0)
+    return formatted?.takeIf { it.nextReadingIndex == reading.length }?.html ?: expression
+}
+
+private fun tokenizeExpression(expression: String): List<ExpressionToken> {
+    if (expression.isEmpty()) return emptyList()
+
+    val tokens = mutableListOf<ExpressionToken>()
+    val current = StringBuilder()
+    var currentHasKanji = expression[0].isKanjiLike()
+
+    expression.forEach { char ->
+        val hasKanji = char.isKanjiLike()
+        if (current.isNotEmpty() && hasKanji != currentHasKanji) {
+            tokens += ExpressionToken(current.toString(), currentHasKanji)
+            current.clear()
+        }
+        current.append(char)
+        currentHasKanji = hasKanji
+    }
+
+    if (current.isNotEmpty()) {
+        tokens += ExpressionToken(current.toString(), currentHasKanji)
+    }
+
+    return tokens
+}
+
+private fun buildFurigana(
+    tokens: List<ExpressionToken>,
+    reading: String,
+    normalizedReading: String,
+    tokenIndex: Int,
+    readingIndex: Int,
+): FuriganaParseResult? {
+    if (tokenIndex == tokens.size) {
+        return FuriganaParseResult(html = "", nextReadingIndex = readingIndex)
+    }
+
+    val token = tokens[tokenIndex]
+    if (!token.hasKanji) {
+        val normalizedToken = token.value.normalizeKana()
+        if (!normalizedReading.startsWith(normalizedToken, startIndex = readingIndex)) {
+            return null
+        }
+
+        val next = buildFurigana(
+            tokens = tokens,
+            reading = reading,
+            normalizedReading = normalizedReading,
+            tokenIndex = tokenIndex + 1,
+            readingIndex = readingIndex + token.value.length,
+        ) ?: return null
+
+        return FuriganaParseResult(
+            html = token.value + next.html,
+            nextReadingIndex = next.nextReadingIndex,
+        )
+    }
+
+    val minReadingEnd = readingIndex + 1
+    for (candidateEnd in minReadingEnd..reading.length) {
+        val rubyReading = reading.substring(readingIndex, candidateEnd)
+        val next = buildFurigana(
+            tokens = tokens,
+            reading = reading,
+            normalizedReading = normalizedReading,
+            tokenIndex = tokenIndex + 1,
+            readingIndex = candidateEnd,
+        ) ?: continue
+
+        return FuriganaParseResult(
+            html = "<ruby>${token.value}<rt>$rubyReading</rt></ruby>${next.html}",
+            nextReadingIndex = next.nextReadingIndex,
+        )
+    }
+
+    return null
+}
+
+private fun String.normalizeKana(): String {
+    return buildString(length) {
+        for (char in this@normalizeKana) {
+            append(char.toHiragana())
+        }
+    }
+}
+
+private fun Char.toHiragana(): Char {
+    return when (this) {
+        in '\u30A1'..'\u30F6' -> (code - 0x60).toChar()
+        else -> this
+    }
+}
+
+private fun Char.isKanjiLike(): Boolean {
+    return this == '々' || Character.UnicodeScript.of(code) == Character.UnicodeScript.HAN
 }
