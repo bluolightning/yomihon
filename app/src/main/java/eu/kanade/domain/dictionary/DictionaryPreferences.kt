@@ -23,7 +23,7 @@ class DictionaryPreferences(
 
     fun ocrResultPresentation() = preferenceStore.getEnum(
         key = "pref_dictionary_ocr_result_presentation",
-        defaultValue = OcrResultPresentation.SHEET,
+        defaultValue = OcrResultPresentation.POPUP,
     )
 
     fun ocrResultPopupWidthDp() = preferenceStore.getInt(
