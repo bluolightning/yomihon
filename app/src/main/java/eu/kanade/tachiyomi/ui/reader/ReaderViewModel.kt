@@ -851,7 +851,10 @@ class ReaderViewModel @JvmOverloads constructor(
                 val text = ocrProcessor.getText(bitmap.toOcrImage())
                 withUIContext {
                     if (text.isNotBlank()) {
-                        showOcrResult(text)
+                        showOcrResult(
+                            text = text,
+                            origin = OcrResultOrigin.ManualSelection,
+                        )
                         mutableState.update { it.copy(isProcessingOcr = false) }
                     } else {
                         mutableState.update { it.copy(isProcessingOcr = false) }
@@ -892,9 +895,13 @@ class ReaderViewModel @JvmOverloads constructor(
         }
     }
 
-    fun showOcrResult(text: String) {
+    fun showOcrResult(
+        text: String,
+        origin: OcrResultOrigin,
+        initialSearchText: String = text,
+    ) {
         mutableState.update {
-            it.copy(dialog = Dialog.OcrResult(text))
+            it.copy(dialog = Dialog.OcrResult(text, origin, initialSearchText))
         }
     }
 
@@ -1065,7 +1072,16 @@ class ReaderViewModel @JvmOverloads constructor(
         data object ReadingModeSelect : Dialog
         data object OrientationModeSelect : Dialog
         data class PageActions(val page: ReaderPage) : Dialog
-        data class OcrResult(val text: String) : Dialog
+        data class OcrResult(
+            val text: String,
+            val origin: OcrResultOrigin,
+            val initialSearchText: String,
+        ) : Dialog
+    }
+
+    enum class OcrResultOrigin {
+        CachedPageTap,
+        ManualSelection,
     }
 
     sealed interface Event {

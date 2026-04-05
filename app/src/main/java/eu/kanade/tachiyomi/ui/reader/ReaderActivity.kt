@@ -88,7 +88,10 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderActiveOcrOverlay
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderOcrRegionSelection
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
+import eu.kanade.tachiyomi.ui.reader.viewer.searchTextForOffset
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
 import eu.kanade.tachiyomi.util.system.isNightMode
@@ -138,6 +141,7 @@ class ReaderActivity : BaseActivity() {
     private val readerPreferences = Injekt.get<ReaderPreferences>()
     private val preferences = Injekt.get<BasePreferences>()
     private val dictionaryPreferences = Injekt.get<DictionaryPreferences>()
+    private val dictionarySearchScreenModel by lazy { DictionarySearchScreenModel() }
 
     lateinit var binding: ReaderActivityBinding
 
@@ -166,8 +170,28 @@ class ReaderActivity : BaseActivity() {
 
     private var ocrDragStart by mutableStateOf<Offset?>(null)
     private var ocrDragEnd by mutableStateOf<Offset?>(null)
-    private var lastOcrSelectionRect by mutableStateOf<android.graphics.RectF?>(null)
+    private var activeOcrOverlaySession by mutableStateOf<ActiveOcrOverlaySession?>(null)
     private var isTapExitEnabled = false
+
+    private data class ActiveOcrOverlaySession(
+        val selection: ReaderOcrRegionSelection,
+        val anchorRectInDialogRoot: android.graphics.RectF,
+        val highlightRange: Pair<Int, Int>? = null,
+    ) {
+        val overlay: ReaderActiveOcrOverlay
+            get() = ReaderActiveOcrOverlay(
+                page = selection.page,
+                regionOrder = selection.regionOrder,
+                text = selection.text,
+                boundingBox = selection.boundingBox,
+                highlightRange = highlightRange,
+            )
+
+        fun matches(selection: ReaderOcrRegionSelection): Boolean {
+            return this.selection.page == selection.page &&
+                this.selection.regionOrder == selection.regionOrder
+        }
+    }
 
     private fun resetOcrDrag() {
         ocrDragStart = null
@@ -284,19 +308,19 @@ class ReaderActivity : BaseActivity() {
                         onSetAsCoverResult(event.result)
                     }
                     ReaderViewModel.Event.OcrNoTextFound -> {
-                        lastOcrSelectionRect = null
+                        clearActiveOcrOverlaySession()
                         toast(MR.strings.no_results_found)
                     }
                     ReaderViewModel.Event.OcrMemoryError -> {
-                        lastOcrSelectionRect = null
+                        clearActiveOcrOverlaySession()
                         toast(MR.strings.ocr_memory_error)
                     }
                     ReaderViewModel.Event.OcrInitializationError -> {
-                        lastOcrSelectionRect = null
+                        clearActiveOcrOverlaySession()
                         toast(MR.strings.ocr_initialization_error)
                     }
                     ReaderViewModel.Event.OcrError -> {
-                        lastOcrSelectionRect = null
+                        clearActiveOcrOverlaySession()
                         toast(MR.strings.error_unknown)
                     }
                 }
@@ -477,10 +501,6 @@ class ReaderActivity : BaseActivity() {
                 )
             }
 
-            val dictionarySearchScreenModel = remember {
-                DictionarySearchScreenModel()
-            }
-
             // Initialize dictionary search model
             LaunchedEffect(Unit) {
                 dictionarySearchScreenModel.refreshDictionaries()
@@ -600,10 +620,7 @@ class ReaderActivity : BaseActivity() {
                 }
 
                 val onDismissRequest = viewModel::closeDialog
-                val onDismissOcrResult = {
-                    lastOcrSelectionRect = null
-                    viewModel.closeDialog()
-                }
+                val onDismissOcrResult = ::dismissActiveOcrOverlaySession
                 when (val dialog = state.dialog) {
                     is ReaderViewModel.Dialog.Loading -> {
                         AlertDialog(
@@ -660,9 +677,15 @@ class ReaderActivity : BaseActivity() {
                     }
                     is ReaderViewModel.Dialog.OcrResult -> {
                         val searchState by dictionarySearchScreenModel.state.collectAsState()
+                        LaunchedEffect(activeOcrOverlaySession?.selection, searchState.results?.highlightRange) {
+                            updateActiveOcrOverlayHighlight(searchState.results?.highlightRange)
+                        }
                         OcrResultOverlay(
                             onDismissRequest = onDismissOcrResult,
-                            presentation = ocrResultPresentation,
+                            presentation = when (dialog.origin) {
+                                ReaderViewModel.OcrResultOrigin.CachedPageTap -> ocrResultPresentation
+                                ReaderViewModel.OcrResultOrigin.ManualSelection -> OcrResultPresentation.SHEET
+                            },
                             popupSettings = OcrResultPopupSettings(
                                 widthDp = ocrPopupWidthDp,
                                 heightDp = ocrPopupHeightDp,
@@ -670,7 +693,8 @@ class ReaderActivity : BaseActivity() {
                             ),
                             dimBackground = dimOcrBackground,
                             text = dialog.text,
-                            anchorRect = lastOcrSelectionRect,
+                            initialSearchText = dialog.initialSearchText,
+                            anchorRect = activeOcrOverlaySession?.anchorRectInDialogRoot,
                             onCopyText = {
                                 val clipboard = getSystemService<ClipboardManager>()
                                 clipboard?.setPrimaryClip(
@@ -890,6 +914,15 @@ class ReaderActivity : BaseActivity() {
      * bottom menu and delegates the change to the presenter.
      */
     fun onPageSelected(page: ReaderPage) {
+        val chapterId = page.chapter.chapter.id
+        if (
+            chapterId != null &&
+            activeOcrOverlaySession?.selection?.page?.let {
+                it.chapterId != chapterId || it.pageIndex != page.index
+            } == true
+        ) {
+            dismissActiveOcrOverlaySession()
+        }
         viewModel.onPageSelected(page)
     }
 
@@ -905,7 +938,6 @@ class ReaderActivity : BaseActivity() {
      * Captures a bitmap from the specified region and processes it with OCR.
      */
     private fun captureRegionAndProcessOcr(rect: android.graphics.RectF) {
-        lastOcrSelectionRect = android.graphics.RectF(rect)
         lifecycleScope.launchIO {
             try {
                 val viewerContainer = binding.viewerContainer
@@ -955,12 +987,74 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    fun showOcrResult(
-        text: String,
-        anchorRectOnScreen: android.graphics.RectF? = null,
-    ) {
-        lastOcrSelectionRect = anchorRectOnScreen?.let(::screenRectToDialogRootRect)
-        viewModel.showOcrResult(text)
+    fun showOcrResult(selection: ReaderOcrRegionSelection) {
+        if (!shouldHandleCachedOcrRegionTaps()) {
+            return
+        }
+
+        val anchorRect = selection.anchorRectOnScreen?.let(::screenRectToDialogRootRect) ?: return
+        if (activeOcrOverlaySession?.matches(selection) == true) {
+            dismissActiveOcrOverlaySession()
+            return
+        }
+
+        activeOcrOverlaySession = ActiveOcrOverlaySession(
+            selection = selection,
+            anchorRectInDialogRoot = anchorRect,
+        )
+        if (!syncActiveOcrOverlay()) {
+            return
+        }
+        viewModel.showOcrResult(
+            text = selection.text,
+            origin = ReaderViewModel.OcrResultOrigin.CachedPageTap,
+            initialSearchText = searchTextForOffset(selection.text, selection.initialSelectionOffset),
+        )
+    }
+
+    fun shouldHandleCachedOcrRegionTaps(): Boolean {
+        return dictionaryPreferences.ocrResultPresentation().get() == OcrResultPresentation.POPUP
+    }
+
+    fun hasActiveOcrOverlaySession(): Boolean {
+        return activeOcrOverlaySession != null
+    }
+
+    fun searchActiveOcrOverlay(offset: Int) {
+        val session = activeOcrOverlaySession ?: return
+        val text = session.selection.text
+        activeOcrOverlaySession = session.copy(highlightRange = null)
+        syncActiveOcrOverlay()
+        dictionarySearchScreenModel.updateQuery(text)
+        dictionarySearchScreenModel.search(searchTextForOffset(text, offset))
+    }
+
+    fun syncActiveOcrOverlay(): Boolean {
+        val overlay = activeOcrOverlaySession?.overlay
+        val applied = viewModel.state.value.viewer?.setActiveOcrOverlay(overlay) ?: (overlay == null)
+        if (overlay != null && !applied) {
+            dismissActiveOcrOverlaySession()
+        }
+        return applied
+    }
+
+    fun dismissActiveOcrOverlaySession() {
+        clearActiveOcrOverlaySession()
+        if (viewModel.state.value.dialog is ReaderViewModel.Dialog.OcrResult) {
+            viewModel.closeDialog()
+        }
+    }
+
+    private fun clearActiveOcrOverlaySession() {
+        activeOcrOverlaySession = null
+        viewModel.state.value.viewer?.setActiveOcrOverlay(null)
+    }
+
+    private fun updateActiveOcrOverlayHighlight(highlightRange: Pair<Int, Int>?) {
+        val session = activeOcrOverlaySession ?: return
+        if (session.highlightRange == highlightRange) return
+        activeOcrOverlaySession = session.copy(highlightRange = highlightRange)
+        syncActiveOcrOverlay()
     }
 
     /**
@@ -1003,7 +1097,7 @@ class ReaderActivity : BaseActivity() {
      */
     fun enterOcrMode() {
         resetOcrDrag()
-        lastOcrSelectionRect = null
+        dismissActiveOcrOverlaySession()
         if (!readerPreferences.fullscreen().get()) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             updateViewerInset(fullscreen = true)

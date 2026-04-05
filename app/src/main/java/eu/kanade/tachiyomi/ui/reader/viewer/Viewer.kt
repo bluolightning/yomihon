@@ -42,4 +42,11 @@ interface Viewer {
      * return true if the event was handled, false otherwise.
      */
     fun handleGenericMotionEvent(event: MotionEvent): Boolean
+
+    /**
+     * Applies the active OCR overlay to the visible page views.
+     *
+     * Returns true when the overlay is applied to a visible page or when [overlay] is null.
+     */
+    fun setActiveOcrOverlay(overlay: ReaderActiveOcrOverlay?): Boolean = overlay == null
 }
