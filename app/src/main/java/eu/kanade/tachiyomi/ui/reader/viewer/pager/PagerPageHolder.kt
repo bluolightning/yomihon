@@ -9,6 +9,8 @@ import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderOcrPageIdentity
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderOcrRegionSelection
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -67,8 +69,19 @@ class PagerPageHolder(
     private var loadJob: Job? = null
 
     init {
-        onOcrRegionClicked = { text, anchorRect ->
-            viewer.activity.showOcrResult(text, anchorRect)
+        setOcrPageIdentity(page.chapter.chapter.id, page.index)
+        onOcrRegionClicked = regionTap@{ tap ->
+            val chapterId = page.chapter.chapter.id ?: return@regionTap
+            viewer.activity.showOcrResult(
+                ReaderOcrRegionSelection(
+                    page = ReaderOcrPageIdentity(chapterId, page.index),
+                    regionOrder = tap.regionOrder,
+                    text = tap.text,
+                    boundingBox = tap.boundingBox,
+                    anchorRectOnScreen = tap.anchorRectOnScreen,
+                    initialSelectionOffset = tap.initialSelectionOffset,
+                ),
+            )
         }
         loadJob = scope.launch { loadPageAndProcessStatus() }
     }
@@ -81,6 +94,7 @@ class PagerPageHolder(
         super.onDetachedFromWindow()
         loadJob?.cancel()
         loadJob = null
+        clearOcrPageIdentity()
     }
 
     private fun initProgressIndicator() {
@@ -281,6 +295,7 @@ class PagerPageHolder(
             val cachedResult = ocrRepository.getCachedPage(chapterId, page.index)
             withUIContext {
                 setCachedOcrResult(cachedResult)
+                viewer.activity.syncActiveOcrOverlay()
             }
         }
     }

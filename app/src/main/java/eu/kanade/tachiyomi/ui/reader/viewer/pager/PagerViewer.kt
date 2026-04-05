@@ -17,6 +17,8 @@ import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderActiveOcrOverlay
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderActiveOcrTapResult
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
 import kotlinx.coroutines.MainScope
@@ -101,25 +103,51 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         pager.id = R.id.reader_pager
         pager.adapter = adapter
         pager.addOnPageChangeListener(pagerListener)
-        pager.tapListener = { event ->
+        pager.tapListener = tap@{ event ->
             val currentPage = adapter.items.getOrNull(pager.currentItem) as? ReaderPage
             val pageHolder = currentPage?.let(::getPageHolder)
-            if (pageHolder?.tryConsumeOcrTap(event.rawX, event.rawY) != true) {
-                val viewPosition = IntArray(2)
-                pager.getLocationOnScreen(viewPosition)
-                val viewPositionRelativeToWindow = IntArray(2)
-                pager.getLocationInWindow(viewPositionRelativeToWindow)
-                val pos = PointF(
-                    (event.rawX - viewPosition[0] + viewPositionRelativeToWindow[0]) / pager.width,
-                    (event.rawY - viewPosition[1] + viewPositionRelativeToWindow[1]) / pager.height,
-                )
-                when (config.navigator.getAction(pos)) {
-                    NavigationRegion.MENU -> activity.toggleMenu()
-                    NavigationRegion.NEXT -> moveToNext()
-                    NavigationRegion.PREV -> moveToPrevious()
-                    NavigationRegion.RIGHT -> moveRight()
-                    NavigationRegion.LEFT -> moveLeft()
+            val activeOverlayTap = if (activity.hasActiveOcrOverlaySession()) {
+                pageHolder?.tryConsumeActiveOcrOverlayTap(event.rawX, event.rawY)
+            } else {
+                null
+            }
+            when (activeOverlayTap) {
+                is ReaderActiveOcrTapResult.SelectWord -> {
+                    activity.searchActiveOcrOverlay(activeOverlayTap.offset)
+                    return@tap
                 }
+                ReaderActiveOcrTapResult.BubbleTap -> {
+                    activity.dismissActiveOcrOverlaySession()
+                    return@tap
+                }
+                null -> {}
+            }
+
+            if (activity.shouldHandleCachedOcrRegionTaps() &&
+                pageHolder?.tryConsumeOcrTap(event.rawX, event.rawY) == true
+            ) {
+                return@tap
+            }
+
+            if (activity.hasActiveOcrOverlaySession()) {
+                activity.dismissActiveOcrOverlaySession()
+                return@tap
+            }
+
+            val viewPosition = IntArray(2)
+            pager.getLocationOnScreen(viewPosition)
+            val viewPositionRelativeToWindow = IntArray(2)
+            pager.getLocationInWindow(viewPositionRelativeToWindow)
+            val pos = PointF(
+                (event.rawX - viewPosition[0] + viewPositionRelativeToWindow[0]) / pager.width,
+                (event.rawY - viewPosition[1] + viewPositionRelativeToWindow[1]) / pager.height,
+            )
+            when (config.navigator.getAction(pos)) {
+                NavigationRegion.MENU -> activity.toggleMenu()
+                NavigationRegion.NEXT -> moveToNext()
+                NavigationRegion.PREV -> moveToPrevious()
+                NavigationRegion.RIGHT -> moveRight()
+                NavigationRegion.LEFT -> moveLeft()
             }
         }
         pager.longTapListener = f@{
@@ -168,6 +196,20 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      */
     override fun getView(): View {
         return pager
+    }
+
+    override fun setActiveOcrOverlay(overlay: ReaderActiveOcrOverlay?): Boolean {
+        var matched = overlay == null
+        pager.children
+            .filterIsInstance(PagerPageHolder::class.java)
+            .forEach { holder ->
+                val activeOverlay = overlay?.takeIf { holder.matchesOcrPage(it.page) }
+                holder.setActiveOcrOverlay(activeOverlay)
+                if (activeOverlay != null) {
+                    matched = true
+                }
+            }
+        return matched
     }
 
     /**
@@ -249,6 +291,8 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             logcat { "Request preload next chapter because we're at page ${page.number} of ${pages.size}" }
             adapter.nextTransition?.to?.let(activity::requestPreloadChapter)
         }
+
+        activity.syncActiveOcrOverlay()
     }
 
     /**
@@ -257,6 +301,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      */
     private fun onTransitionSelected(transition: ChapterTransition) {
         logcat { "onTransitionSelected: $transition" }
+        activity.dismissActiveOcrOverlaySession()
         val toChapter = transition.to
         if (toChapter != null) {
             logcat { "Request preload destination chapter because we're on the transition" }

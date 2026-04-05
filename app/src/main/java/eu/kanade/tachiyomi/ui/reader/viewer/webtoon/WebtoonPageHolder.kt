@@ -14,6 +14,8 @@ import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderOcrPageIdentity
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderOcrRegionSelection
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -90,8 +92,19 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { error -> setError(error) }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
-        frame.onOcrRegionClicked = { text, anchorRect ->
-            viewer.activity.showOcrResult(text, anchorRect)
+        frame.onOcrRegionClicked = regionTap@{ tap ->
+            val currentPage = page ?: return@regionTap
+            val chapterId = currentPage.chapter.chapter.id ?: return@regionTap
+            viewer.activity.showOcrResult(
+                ReaderOcrRegionSelection(
+                    page = ReaderOcrPageIdentity(chapterId, currentPage.index),
+                    regionOrder = tap.regionOrder,
+                    text = tap.text,
+                    boundingBox = tap.boundingBox,
+                    anchorRectOnScreen = tap.anchorRectOnScreen,
+                    initialSelectionOffset = tap.initialSelectionOffset,
+                ),
+            )
         }
     }
 
@@ -101,6 +114,7 @@ class WebtoonPageHolder(
     fun bind(page: ReaderPage) {
         this.page = page
         loadJob?.cancel()
+        frame.setOcrPageIdentity(page.chapter.chapter.id, page.index)
         frame.clearCachedOcrResult()
         loadJob = scope.launch { loadPageAndProcessStatus() }
         refreshLayoutParams()
@@ -127,6 +141,7 @@ class WebtoonPageHolder(
 
         removeErrorLayout()
         frame.recycle()
+        frame.clearOcrPageIdentity()
         frame.clearCachedOcrResult()
         progressIndicator.setProgress(0)
         progressContainer.isVisible = true
@@ -278,6 +293,7 @@ class WebtoonPageHolder(
             val cachedResult = ocrRepository.getCachedPage(chapterId, currentPage.index)
             withUIContext {
                 frame.setCachedOcrResult(cachedResult)
+                viewer.activity.syncActiveOcrOverlay()
             }
         }
     }

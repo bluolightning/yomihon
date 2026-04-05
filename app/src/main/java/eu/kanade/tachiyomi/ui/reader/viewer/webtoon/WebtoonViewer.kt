@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import androidx.core.app.ActivityCompat
+import androidx.core.view.children
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +18,8 @@ import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderActiveOcrOverlay
+import eu.kanade.tachiyomi.ui.reader.viewer.ReaderActiveOcrTapResult
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
@@ -112,15 +115,45 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
                 }
             },
         )
-        recycler.tapListener = { event ->
+        recycler.tapListener = tap@{ event ->
             val child = recycler.findChildViewUnder(event.x, event.y) as? ReaderPageImageView
-            val consumedOcrTap = child?.let {
-                // Webtoon can be scaled/translated; use recycler-local coordinates for stable hit-testing.
-                val localX = event.x - it.x
-                val localY = event.y - it.y
-                it.tryConsumeOcrTapLocal(localX, localY)
-            } == true
+            val activeOverlayTap = if (activity.hasActiveOcrOverlaySession()) {
+                child?.let {
+                    // Webtoon can be scaled/translated; use recycler-local coordinates for stable hit-testing.
+                    val localX = event.x - it.x
+                    val localY = event.y - it.y
+                    it.tryConsumeActiveOcrOverlayTapLocal(localX, localY)
+                }
+            } else {
+                null
+            }
+            when (activeOverlayTap) {
+                is ReaderActiveOcrTapResult.SelectWord -> {
+                    activity.searchActiveOcrOverlay(activeOverlayTap.offset)
+                    return@tap
+                }
+                ReaderActiveOcrTapResult.BubbleTap -> {
+                    activity.dismissActiveOcrOverlaySession()
+                    return@tap
+                }
+                null -> {}
+            }
+
+            val consumedOcrTap = if (activity.shouldHandleCachedOcrRegionTaps()) {
+                child?.let {
+                    val localX = event.x - it.x
+                    val localY = event.y - it.y
+                    it.tryConsumeOcrTapLocal(localX, localY)
+                } == true
+            } else {
+                false
+            }
             if (!consumedOcrTap) {
+                if (activity.hasActiveOcrOverlaySession()) {
+                    activity.dismissActiveOcrOverlaySession()
+                    return@tap
+                }
+
                 val viewPosition = IntArray(2)
                 recycler.getLocationOnScreen(viewPosition)
                 val viewPositionRelativeToWindow = IntArray(2)
@@ -207,6 +240,20 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
         return frame
     }
 
+    override fun setActiveOcrOverlay(overlay: ReaderActiveOcrOverlay?): Boolean {
+        var matched = overlay == null
+        recycler.children
+            .filterIsInstance(ReaderPageImageView::class.java)
+            .forEach { pageView ->
+                val activeOverlay = overlay?.takeIf { pageView.matchesOcrPage(it.page) }
+                pageView.setActiveOcrOverlay(activeOverlay)
+                if (activeOverlay != null) {
+                    matched = true
+                }
+            }
+        return matched
+    }
+
     /**
      * Destroys this viewer. Called when leaving the reader or swapping viewers.
      */
@@ -235,6 +282,8 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
                 activity.requestPreloadChapter(transitionChapter)
             }
         }
+
+        activity.syncActiveOcrOverlay()
     }
 
     /**
@@ -243,6 +292,7 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
      */
     private fun onTransitionSelected(transition: ChapterTransition) {
         logcat { "onTransitionSelected: $transition" }
+        activity.dismissActiveOcrOverlaySession()
         val toChapter = transition.to
         if (toChapter != null) {
             logcat { "Request preload destination chapter because we're on the transition" }

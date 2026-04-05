@@ -1,12 +1,24 @@
 package eu.kanade.tachiyomi.ui.reader.viewer
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.text.Layout
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -72,12 +84,31 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private var config: Config? = null
     private var cachedOcrResult: OcrPageResult? = null
+    private var ocrPageIdentity: ReaderOcrPageIdentity? = null
+    private var activeOcrOverlay: ReaderActiveOcrOverlay? = null
+    private var activeOverlayLayout: OverlayTextLayout? = null
+
+    private val ocrOverlayBackgroundPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(176, 16, 16, 16)
+        }
+    private val ocrOverlayStrokePaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(160, 255, 255, 255)
+            style = Paint.Style.STROKE
+            strokeWidth = resources.displayMetrics.density * 1.5f
+        }
+    private val ocrOverlayTextPaint =
+        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.LEFT
+        }
 
     var onImageLoaded: (() -> Unit)? = null
     var onImageLoadError: ((Throwable?) -> Unit)? = null
     var onScaleChanged: ((newScale: Float) -> Unit)? = null
     var onViewClicked: (() -> Unit)? = null
-    var onOcrRegionClicked: ((String, RectF?) -> Unit)? = null
+    var onOcrRegionClicked: ((ReaderPageOcrRegionTap) -> Unit)? = null
 
     /**
      * For automatic background. Will be set as background color when [onImageLoaded] is called.
@@ -98,6 +129,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
     @CallSuper
     open fun onScaleChanged(newScale: Float) {
         onScaleChanged?.invoke(newScale)
+        invalidateActiveOverlayLayout()
         invalidate()
     }
 
@@ -177,12 +209,35 @@ open class ReaderPageImageView @JvmOverloads constructor(
     }
 
     fun recycle() = pageView?.let {
+        clearOcrPageIdentity()
         clearCachedOcrResult()
         when (it) {
             is SubsamplingScaleImageView -> it.recycle()
             is AppCompatImageView -> it.dispose()
         }
         it.isVisible = false
+    }
+
+    fun setOcrPageIdentity(
+        chapterId: Long?,
+        pageIndex: Int,
+    ) {
+        ocrPageIdentity = chapterId?.let { ReaderOcrPageIdentity(it, pageIndex) }
+    }
+
+    fun clearOcrPageIdentity() {
+        ocrPageIdentity = null
+        setActiveOcrOverlay(null)
+    }
+
+    fun matchesOcrPage(pageIdentity: ReaderOcrPageIdentity): Boolean {
+        return ocrPageIdentity == pageIdentity
+    }
+
+    fun setActiveOcrOverlay(overlay: ReaderActiveOcrOverlay?) {
+        activeOcrOverlay = overlay
+        invalidateActiveOverlayLayout()
+        invalidate()
     }
 
     /**
@@ -421,11 +476,13 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     fun setCachedOcrResult(result: OcrPageResult?) {
         cachedOcrResult = result
+        invalidateActiveOverlayLayout()
         invalidate()
     }
 
     fun clearCachedOcrResult() {
         cachedOcrResult = null
+        invalidateActiveOverlayLayout()
         invalidate()
     }
 
@@ -434,13 +491,253 @@ open class ReaderPageImageView @JvmOverloads constructor(
         return tryConsumeOcrTapLocal(localPoint.x, localPoint.y)
     }
 
+    fun tryConsumeActiveOcrOverlayTap(rawX: Float, rawY: Float): ReaderActiveOcrTapResult? {
+        val localPoint = rawPointToLocalPoint(rawX, rawY) ?: return null
+        return tryConsumeActiveOcrOverlayTapLocal(localPoint.x, localPoint.y)
+    }
+
     fun tryConsumeOcrTapLocal(localX: Float, localY: Float): Boolean {
         val result = cachedOcrResult ?: return false
         val sourcePoint = localPointToSourcePoint(localX, localY) ?: return false
         val region = result.findRegionAt(sourcePoint.x, sourcePoint.y) ?: return false
 
-        onOcrRegionClicked?.invoke(region.text, boundingBoxToScreenRect(region.boundingBox, result))
+        onOcrRegionClicked?.invoke(
+            ReaderPageOcrRegionTap(
+                regionOrder = region.order,
+                text = region.text,
+                boundingBox = region.boundingBox,
+                anchorRectOnScreen = boundingBoxToScreenRect(region.boundingBox, result),
+                initialSelectionOffset = resolveInitialSelectionOffset(region, result, localX, localY),
+            ),
+        )
         return true
+    }
+
+    fun tryConsumeActiveOcrOverlayTapLocal(
+        localX: Float,
+        localY: Float,
+    ): ReaderActiveOcrTapResult? {
+        val overlayLayout = getOrBuildActiveOverlayLayout() ?: return null
+        if (!overlayLayout.bubbleRect.contains(localX, localY)) return null
+        return if (isPointNearOverlayText(overlayLayout, localX, localY)) {
+            ReaderActiveOcrTapResult.SelectWord(
+                resolveSelectionOffset(overlayLayout, localX, localY, activeOcrOverlay?.text.orEmpty()),
+            )
+        } else {
+            ReaderActiveOcrTapResult.BubbleTap
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        drawActiveOcrOverlay(canvas)
+    }
+
+    private fun drawActiveOcrOverlay(canvas: Canvas) {
+        val overlayLayout = getOrBuildActiveOverlayLayout() ?: return
+        val cornerRadius = resources.displayMetrics.density * 12f
+        canvas.drawRoundRect(overlayLayout.bubbleRect, cornerRadius, cornerRadius, ocrOverlayBackgroundPaint)
+        canvas.drawRoundRect(overlayLayout.bubbleRect, cornerRadius, cornerRadius, ocrOverlayStrokePaint)
+        canvas.save()
+        canvas.translate(overlayLayout.textRect.left, overlayLayout.textRect.top)
+        overlayLayout.layout.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun resolveInitialSelectionOffset(
+        region: mihon.domain.ocr.model.OcrRegion,
+        pageResult: OcrPageResult,
+        localX: Float,
+        localY: Float,
+    ): Int {
+        val overlayLayout = buildOverlayTextLayout(
+            bubbleRect = boundingBoxToLocalRect(region.boundingBox, pageResult) ?: return 0,
+            text = region.text,
+            highlightRange = null,
+        ) ?: return 0
+        return if (isPointNearOverlayText(overlayLayout, localX, localY)) {
+            resolveSelectionOffset(overlayLayout, localX, localY, region.text)
+        } else {
+            0
+        }
+    }
+
+    private fun getOrBuildActiveOverlayLayout(): OverlayTextLayout? {
+        activeOverlayLayout?.let { return it }
+
+        val overlay = activeOcrOverlay ?: return null
+        val result = cachedOcrResult ?: return null
+        val bubbleRect = boundingBoxToLocalRect(overlay.boundingBox, result) ?: return null
+        return buildOverlayTextLayout(
+            bubbleRect = bubbleRect,
+            text = overlay.text,
+            highlightRange = overlay.highlightRange,
+        )?.also {
+            activeOverlayLayout = it
+        }
+    }
+
+    private fun buildOverlayTextLayout(
+        bubbleRect: RectF,
+        text: String,
+        highlightRange: Pair<Int, Int>?,
+    ): OverlayTextLayout? {
+        if (text.isBlank() || bubbleRect.width() <= 0f || bubbleRect.height() <= 0f) return null
+
+        val density = resources.displayMetrics.density
+        val scaledDensity = resources.displayMetrics.scaledDensity
+        val horizontalPadding = bubbleRect.width().coerceAtMost(12f * density) / 6f
+        val verticalPadding = bubbleRect.height().coerceAtMost(12f * density) / 6f
+        val contentWidth = (bubbleRect.width() - (horizontalPadding * 2)).toInt().coerceAtLeast(1)
+        val maxContentHeight = (bubbleRect.height() - (verticalPadding * 2)).toInt().coerceAtLeast(1)
+        val textSpan = buildOverlayTextSpan(text, highlightRange)
+
+        val maxTextSizePx = minOf(24f * scaledDensity, bubbleRect.height() * 0.38f).coerceAtLeast(12f * scaledDensity)
+        val minTextSizePx = minOf(maxTextSizePx, 10f * scaledDensity)
+
+        var textSizePx = maxTextSizePx
+        while (textSizePx >= minTextSizePx) {
+            val layout = createOverlayLayout(textSpan, contentWidth, maxContentHeight, textSizePx)
+            if (layout.height <= maxContentHeight) {
+                val textTop = bubbleRect.top + verticalPadding + ((maxContentHeight - layout.height) / 2f)
+                return OverlayTextLayout(
+                    bubbleRect = RectF(bubbleRect),
+                    textRect = RectF(
+                        bubbleRect.left + horizontalPadding,
+                        textTop,
+                        bubbleRect.left + horizontalPadding + contentWidth,
+                        textTop + layout.height,
+                    ),
+                    layout = layout,
+                )
+            }
+            textSizePx -= scaledDensity
+        }
+
+        val fallbackLayout = createOverlayLayout(textSpan, contentWidth, maxContentHeight, minTextSizePx)
+        return OverlayTextLayout(
+            bubbleRect = RectF(bubbleRect),
+            textRect = RectF(
+                bubbleRect.left + horizontalPadding,
+                bubbleRect.top + verticalPadding,
+                bubbleRect.left + horizontalPadding + contentWidth,
+                bubbleRect.top + verticalPadding + minOf(fallbackLayout.height, maxContentHeight),
+            ),
+            layout = fallbackLayout,
+        )
+    }
+
+    private fun createOverlayLayout(
+        text: CharSequence,
+        width: Int,
+        maxHeight: Int,
+        textSizePx: Float,
+    ): StaticLayout {
+        ocrOverlayTextPaint.textSize = textSizePx
+        val maxLines = (maxHeight / ocrOverlayTextPaint.fontSpacing).toInt().coerceAtLeast(1)
+        return StaticLayout.Builder
+            .obtain(text, 0, text.length, ocrOverlayTextPaint, width)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .setMaxLines(maxLines)
+            .setIncludePad(false)
+            .build()
+    }
+
+    private fun buildOverlayTextSpan(
+        text: String,
+        highlightRange: Pair<Int, Int>?,
+    ): CharSequence {
+        if (highlightRange == null || highlightRange.first >= highlightRange.second) {
+            return text
+        }
+
+        val start = highlightRange.first.coerceIn(0, text.length)
+        val end = highlightRange.second.coerceIn(start, text.length)
+        if (start == end) return text
+
+        return SpannableString(text).apply {
+            setSpan(BackgroundColorSpan(Color.argb(220, 255, 214, 10)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(Color.BLACK), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
+    private fun isPointNearOverlayText(
+        overlayLayout: OverlayTextLayout,
+        localX: Float,
+        localY: Float,
+    ): Boolean {
+        val layoutLocalY = localY - overlayLayout.textRect.top
+        if (layoutLocalY < 0f || layoutLocalY > overlayLayout.layout.height.toFloat()) {
+            return false
+        }
+
+        val line = overlayLayout.layout.getLineForVertical(layoutLocalY.toInt())
+        val lineTop = overlayLayout.textRect.top + overlayLayout.layout.getLineTop(line)
+        val lineBottom = overlayLayout.textRect.top + overlayLayout.layout.getLineBottom(line)
+        val lineLeft = overlayLayout.textRect.left + overlayLayout.layout.getLineLeft(line)
+        val lineRight = overlayLayout.textRect.left + overlayLayout.layout.getLineRight(line)
+        val allowancePx = resources.displayMetrics.density * 12f
+
+        return localY >= lineTop - allowancePx &&
+            localY <= lineBottom + allowancePx &&
+            localX >= minOf(lineLeft, lineRight) - allowancePx &&
+            localX <= maxOf(lineLeft, lineRight) + allowancePx
+    }
+
+    private fun resolveSelectionOffset(
+        overlayLayout: OverlayTextLayout,
+        localX: Float,
+        localY: Float,
+        text: String,
+    ): Int {
+        if (text.isEmpty()) return 0
+        val line = overlayLayout.layout.getLineForVertical(
+            (localY - overlayLayout.textRect.top).toInt().coerceAtLeast(0),
+        )
+        return overlayLayout.layout
+            .getOffsetForHorizontal(line, (localX - overlayLayout.textRect.left).coerceAtLeast(0f))
+            .coerceIn(0, text.lastIndex)
+    }
+
+    private fun boundingBoxToLocalRect(
+        boundingBox: OcrBoundingBox,
+        pageResult: OcrPageResult,
+    ): RectF? {
+        val localRect = when (val currentPageView = pageView) {
+            is SubsamplingScaleImageView -> {
+                if (!currentPageView.isReady) return null
+                val sourceRect = boundingBox.toSourceRect(pageResult)
+                val topLeft = currentPageView.sourceToViewCoord(sourceRect.left, sourceRect.top) ?: return null
+                val bottomRight = currentPageView.sourceToViewCoord(sourceRect.right, sourceRect.bottom) ?: return null
+                RectF(
+                    minOf(topLeft.x, bottomRight.x),
+                    minOf(topLeft.y, bottomRight.y),
+                    maxOf(topLeft.x, bottomRight.x),
+                    maxOf(topLeft.y, bottomRight.y),
+                )
+            }
+            is ImageView -> {
+                val drawable = currentPageView.drawable ?: return null
+                val sourceRect = boundingBox.toSourceRect(
+                    imageWidth = drawable.intrinsicWidth,
+                    imageHeight = drawable.intrinsicHeight,
+                )
+                RectF(sourceRect).also(currentPageView.imageMatrix::mapRect)
+            }
+            else -> return null
+        }
+
+        return RectF(
+            localRect.left.coerceIn(0f, width.toFloat()),
+            localRect.top.coerceIn(0f, height.toFloat()),
+            localRect.right.coerceIn(0f, width.toFloat()),
+            localRect.bottom.coerceIn(0f, height.toFloat()),
+        ).takeIf { it.width() > 0f && it.height() > 0f }
+    }
+
+    private fun invalidateActiveOverlayLayout() {
+        activeOverlayLayout = null
     }
 
     private fun rawPointToLocalPoint(rawX: Float, rawY: Float): PointF? {
@@ -547,6 +844,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
 }
 
 private const val MAX_ZOOM_SCALE = 5F
+
+private data class OverlayTextLayout(
+    val bubbleRect: RectF,
+    val textRect: RectF,
+    val layout: StaticLayout,
+)
 
 private fun OcrBoundingBox.toSourceRect(pageResult: OcrPageResult): RectF {
     return toSourceRect(
