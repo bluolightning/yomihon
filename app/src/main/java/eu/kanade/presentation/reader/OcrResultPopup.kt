@@ -64,7 +64,15 @@ fun OcrResultPopup(
             }
 
         val placement =
-            remember(anchorRect, preferredPopupWidthPx, preferredPopupHeightPx, viewportWidthPx, viewportHeightPx, gapPx, marginPx) {
+            remember(
+                anchorRect,
+                preferredPopupWidthPx,
+                preferredPopupHeightPx,
+                viewportWidthPx,
+                viewportHeightPx,
+                gapPx,
+                marginPx,
+            ) {
                 calculatePopupPlacement(
                     anchorRect = anchorRect,
                     preferredPopupWidthPx = preferredPopupWidthPx,
@@ -152,6 +160,23 @@ internal data class PopupPlacement(
     val height: Float,
 )
 
+private data class PlacementBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+) {
+    val width: Float get() = (right - left).coerceAtLeast(0f)
+    val height: Float get() = (bottom - top).coerceAtLeast(0f)
+}
+
+private enum class PopupSide {
+    Right,
+    Left,
+    Below,
+    Above,
+}
+
 internal fun calculatePopupPlacement(
     anchorRect: RectF,
     preferredPopupWidthPx: Float,
@@ -187,115 +212,165 @@ internal fun calculatePopupPlacement(
     gapPx: Float,
     marginPx: Float,
 ): PopupPlacement? {
-    val availableViewportWidth = (viewportWidthPx - (marginPx * 2)).coerceAtLeast(0f)
-    val availableViewportHeight = (viewportHeightPx - (marginPx * 2)).coerceAtLeast(0f)
-    if (availableViewportWidth <= 0f || availableViewportHeight <= 0f) {
+    val viewport = PlacementBounds(
+        left = marginPx,
+        top = marginPx,
+        right = viewportWidthPx - marginPx,
+        bottom = viewportHeightPx - marginPx,
+    )
+    if (viewport.width <= 0f || viewport.height <= 0f) {
         return null
     }
 
-    fun clampHorizontal(x: Float, width: Float): Float {
-        return x.coerceIn(marginPx, viewportWidthPx - marginPx - width)
-    }
+    val normalizedAnchorLeft = anchorLeft.coerceIn(0f, viewportWidthPx)
+    val normalizedAnchorTop = anchorTop.coerceIn(0f, viewportHeightPx)
+    val normalizedAnchorRight = anchorRight.coerceIn(0f, viewportWidthPx)
+    val normalizedAnchorBottom = anchorBottom.coerceIn(0f, viewportHeightPx)
 
-    fun clampVertical(y: Float, height: Float): Float {
-        return y.coerceIn(marginPx, viewportHeightPx - marginPx - height)
-    }
+    val safeAnchorLeft = min(normalizedAnchorLeft, normalizedAnchorRight)
+    val safeAnchorTop = min(normalizedAnchorTop, normalizedAnchorBottom)
+    val safeAnchorRight = max(normalizedAnchorLeft, normalizedAnchorRight)
+    val safeAnchorBottom = max(normalizedAnchorTop, normalizedAnchorBottom)
+
+    val anchorCenterX = (safeAnchorLeft + safeAnchorRight) / 2f
+    val anchorCenterY = (safeAnchorTop + safeAnchorBottom) / 2f
+    val preferredWidth = preferredPopupWidthPx.coerceAtLeast(1f)
+    val preferredHeight = preferredPopupHeightPx.coerceAtLeast(1f)
 
     data class CandidatePlacement(
+        val side: PopupSide,
         val placement: PopupPlacement,
-        val score: Float,
+        val widthRatio: Float,
+        val heightRatio: Float,
+        val areaRatio: Float,
         val priority: Int,
     )
 
-    val candidates = buildList {
-        val rightX = max(anchorRight + gapPx, marginPx)
-        val rightWidth = min(preferredPopupWidthPx, viewportWidthPx - marginPx - rightX)
-        if (rightWidth > 0f) {
-            val rightHeight = min(preferredPopupHeightPx, availableViewportHeight)
-            add(
-                CandidatePlacement(
-                    placement = PopupPlacement(
-                        x = rightX,
-                        y = clampVertical(anchorTop, rightHeight),
-                        width = rightWidth,
-                        height = rightHeight,
-                    ),
-                    score = rightWidth * rightHeight,
-                    priority = 0,
-                ),
-            )
+    fun Float.clampToRange(minValue: Float, maxValue: Float): Float {
+        return if (maxValue < minValue) minValue else coerceIn(minValue, maxValue)
+    }
+
+    fun buildCandidate(
+        side: PopupSide,
+        availableBounds: PlacementBounds,
+        priority: Int,
+    ): CandidatePlacement? {
+        val width = min(preferredWidth, availableBounds.width)
+        val height = min(preferredHeight, availableBounds.height)
+        if (width <= 0f || height <= 0f) {
+            return null
         }
 
-        val leftWidth = min(preferredPopupWidthPx, anchorLeft - gapPx - marginPx)
-        if (leftWidth > 0f) {
-            val leftHeight = min(preferredPopupHeightPx, availableViewportHeight)
-            add(
-                CandidatePlacement(
-                    placement = PopupPlacement(
-                        x = anchorLeft - gapPx - leftWidth,
-                        y = clampVertical(anchorTop, leftHeight),
-                        width = leftWidth,
-                        height = leftHeight,
-                    ),
-                    score = leftWidth * leftHeight,
-                    priority = 1,
-                ),
-            )
+        val x = when (side) {
+            PopupSide.Right -> availableBounds.left
+            PopupSide.Left -> availableBounds.right - width
+            PopupSide.Above,
+            PopupSide.Below,
+            -> (anchorCenterX - (width / 2f)).clampToRange(availableBounds.left, availableBounds.right - width)
+        }
+        val y = when (side) {
+            PopupSide.Below -> availableBounds.top
+            PopupSide.Above -> availableBounds.bottom - height
+            PopupSide.Right,
+            PopupSide.Left,
+            -> (anchorCenterY - (height / 2f)).clampToRange(availableBounds.top, availableBounds.bottom - height)
         }
 
-        val belowY = max(anchorBottom + gapPx, marginPx)
-        val belowHeight = min(preferredPopupHeightPx, viewportHeightPx - marginPx - belowY)
-        if (belowHeight > 0f) {
-            val belowWidth = min(preferredPopupWidthPx, availableViewportWidth)
-            add(
-                CandidatePlacement(
-                    placement = PopupPlacement(
-                        x = clampHorizontal(anchorLeft, belowWidth),
-                        y = belowY,
-                        width = belowWidth,
-                        height = belowHeight,
-                    ),
-                    score = belowWidth * belowHeight,
-                    priority = 2,
-                ),
-            )
-        }
+        val placement = PopupPlacement(
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+        )
 
-        val aboveHeight = min(preferredPopupHeightPx, anchorTop - gapPx - marginPx)
-        if (aboveHeight > 0f) {
-            val aboveWidth = min(preferredPopupWidthPx, availableViewportWidth)
-            add(
-                CandidatePlacement(
-                    placement = PopupPlacement(
-                        x = clampHorizontal(anchorLeft, aboveWidth),
-                        y = anchorTop - gapPx - aboveHeight,
-                        width = aboveWidth,
-                        height = aboveHeight,
-                    ),
-                    score = aboveWidth * aboveHeight,
-                    priority = 3,
-                ),
-            )
-        }
-
-        add(
-            CandidatePlacement(
-                placement = PopupPlacement(
-                    x = clampHorizontal((viewportWidthPx - preferredPopupWidthPx) / 2f, min(preferredPopupWidthPx, availableViewportWidth)),
-                    y = clampVertical((viewportHeightPx - preferredPopupHeightPx) / 2f, min(preferredPopupHeightPx, availableViewportHeight)),
-                    width = min(preferredPopupWidthPx, availableViewportWidth),
-                    height = min(preferredPopupHeightPx, availableViewportHeight),
-                ),
-                score = availableViewportWidth * availableViewportHeight,
-                priority = 4,
-            ),
+        return CandidatePlacement(
+            side = side,
+            placement = placement,
+            widthRatio = width / preferredWidth,
+            heightRatio = height / preferredHeight,
+            areaRatio = (width * height) / (preferredWidth * preferredHeight),
+            priority = priority,
         )
     }
 
-    return candidates
-        .sortedWith(compareByDescending<CandidatePlacement> { it.score }.thenBy { it.priority })
-        .firstOrNull()
-        ?.placement
+    val candidates = buildList {
+        add(
+            buildCandidate(
+                side = PopupSide.Right,
+                availableBounds = PlacementBounds(
+                    left = max(safeAnchorRight + gapPx, viewport.left),
+                    top = viewport.top,
+                    right = viewport.right,
+                    bottom = viewport.bottom,
+                ),
+                priority = 0,
+            ),
+        )
+        add(
+            buildCandidate(
+                side = PopupSide.Left,
+                availableBounds = PlacementBounds(
+                    left = viewport.left,
+                    top = viewport.top,
+                    right = min(safeAnchorLeft - gapPx, viewport.right),
+                    bottom = viewport.bottom,
+                ),
+                priority = 1,
+            ),
+        )
+        add(
+            buildCandidate(
+                side = PopupSide.Below,
+                availableBounds = PlacementBounds(
+                    left = viewport.left,
+                    top = max(safeAnchorBottom + gapPx, viewport.top),
+                    right = viewport.right,
+                    bottom = viewport.bottom,
+                ),
+                priority = 2,
+            ),
+        )
+        add(
+            buildCandidate(
+                side = PopupSide.Above,
+                availableBounds = PlacementBounds(
+                    left = viewport.left,
+                    top = viewport.top,
+                    right = viewport.right,
+                    bottom = min(safeAnchorTop - gapPx, viewport.bottom),
+                ),
+                priority = 3,
+            ),
+        )
+    }.filterNotNull()
+
+    val bestCandidate =
+        candidates
+            .sortedWith(
+                compareByDescending<CandidatePlacement> { it.areaRatio }
+                    .thenByDescending { min(it.widthRatio, it.heightRatio) }
+                    .thenByDescending { it.widthRatio >= 1f && it.heightRatio >= 1f }
+                    .thenBy { it.priority },
+            )
+            .firstOrNull()
+
+    if (bestCandidate == null) {
+        return null
+    }
+
+    val minimumWidthRatio = 0.55f
+    val minimumHeightRatio = 0.40f
+    val minimumAreaRatio = 0.35f
+    val isUsableFloatingPopup =
+        bestCandidate.widthRatio >= minimumWidthRatio &&
+            bestCandidate.heightRatio >= minimumHeightRatio &&
+            bestCandidate.areaRatio >= minimumAreaRatio
+
+    return if (isUsableFloatingPopup) {
+        bestCandidate.placement
+    } else {
+        null
+    }
 }
 
 internal fun rectsIntersect(
