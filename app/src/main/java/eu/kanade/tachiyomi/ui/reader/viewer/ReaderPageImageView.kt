@@ -13,6 +13,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -104,6 +105,10 @@ open class ReaderPageImageView @JvmOverloads constructor(
             textPaint = ocrOverlayTextPaint,
             density = resources.displayMetrics.density,
             scaledDensity = resources.displayMetrics.scaledDensity,
+            highlightColor = resolveThemeColor(
+                com.google.android.material.R.attr.colorPrimaryContainer,
+                fallback = Color.argb(255, 255, 214, 10),
+            ),
         )
     }
 
@@ -703,6 +708,19 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private fun Int.getSystemScaledDuration(): Int {
         return (this * context.animatorDurationScale).toInt().coerceAtLeast(1)
+    }
+
+    private fun resolveThemeColor(attrRes: Int, fallback: Int): Int {
+        val tv = TypedValue()
+        return if (context.theme.resolveAttribute(attrRes, tv, true)) {
+            if (tv.resourceId != 0) {
+                androidx.core.content.ContextCompat.getColor(context, tv.resourceId)
+            } else {
+                tv.data
+            }
+        } else {
+            fallback
+        }
     }
 
     /**

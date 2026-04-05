@@ -8,24 +8,40 @@ import android.text.TextPaint
 import mihon.domain.ocr.model.OcrTextOrientation
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.pow
 
 internal class ReaderOcrOverlayRenderer(
     private val textPaint: TextPaint,
     private val density: Float,
     private val scaledDensity: Float,
+    highlightColor: Int,
 ) {
     private val touchAllowancePx = density * 12f
     private val minTextSizePx = 6f * scaledDensity
     private val textSizeStepPx = (scaledDensity * 0.5f).coerceAtLeast(0.5f)
+
+    // Use the theme's onPrimaryContainer color with a fixed alpha for the highlight.
+    private val highlightPaintColor = Color.argb(
+        220,
+        Color.red(highlightColor),
+        Color.green(highlightColor),
+        Color.blue(highlightColor),
+    )
     private val horizontalHighlightPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(220, 255, 214, 10)
+            color = highlightPaintColor
         }
     private val verticalHighlightPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(220, 255, 214, 10)
+            color = highlightPaintColor
         }
     private val verticalHighlightRadiusPx = density * 4f
+
+    /**
+     * Text color to use on top of the highlight - black or white chosen by contrast against
+     * the highlight background color.
+     */
+    private val highlightTextColor: Int = contrastTextColor(highlightColor)
 
     fun buildLayout(
         bubbleRect: RectF,
@@ -122,8 +138,17 @@ internal class ReaderOcrOverlayRenderer(
             line.highlightSegments.forEach { segment ->
                 canvas.drawRect(segment, horizontalHighlightPaint)
             }
+            // Always draw white text; highlighted segments get a contrasting color.
+            // We draw non-highlighted text first in white, then re-draw highlighted chars
+            // on top in the contrasting color so the highlight background shows correctly.
             textPaint.color = Color.WHITE
             canvas.drawText(line.text, line.left, line.baselineY, textPaint)
+            if (line.highlightSegments.isNotEmpty()) {
+                textPaint.color = highlightTextColor
+                line.highlightText.forEach { (text, x) ->
+                    canvas.drawText(text, x, line.baselineY, textPaint)
+                }
+            }
         }
     }
 
@@ -134,7 +159,7 @@ internal class ReaderOcrOverlayRenderer(
             if (glyph.isHighlighted) {
                 canvas.drawRoundRect(glyph.rect, verticalHighlightRadiusPx, verticalHighlightRadiusPx, verticalHighlightPaint)
             }
-            textPaint.color = if (glyph.isHighlighted) Color.BLACK else Color.WHITE
+            textPaint.color = if (glyph.isHighlighted) highlightTextColor else Color.WHITE
             val textWidth = measureText(glyph.char)
             val textX = glyph.rect.left + ((glyph.rect.width() - textWidth) / 2f)
             canvas.drawText(glyph.char, textX, glyph.baselineY, textPaint)
@@ -207,6 +232,21 @@ internal class ReaderOcrOverlayRenderer(
                 contentRect.left
             }
             val highlightSegments = mutableListOf<RectF>()
+            // Collect contiguous runs of highlighted characters so we can re-draw them
+            // in a contrasting text color on top of the highlight background.
+            val highlightText = mutableListOf<Pair<String, Float>>()
+            var highlightRunStart = -1
+            var highlightRunStartIndex = -1
+
+            fun flushHighlightRun(endCharIndex: Int) {
+                if (highlightRunStart >= 0) {
+                    val runText = line.substring(highlightRunStartIndex, endCharIndex)
+                    val runX = lineLeft + measureText(line, 0, highlightRunStartIndex)
+                    highlightText += Pair(runText, runX)
+                    highlightRunStart = -1
+                    highlightRunStartIndex = -1
+                }
+            }
 
             line.forEachIndexed { charIndex, _ ->
                 val charDisplayOffset = displayOffset + charIndex
@@ -214,8 +254,15 @@ internal class ReaderOcrOverlayRenderer(
                     val left = lineLeft + measureText(line, 0, charIndex)
                     val right = lineLeft + measureText(line, 0, charIndex + 1)
                     highlightSegments += RectF(left, lineTop, right, lineBottom)
+                    if (highlightRunStart < 0) {
+                        highlightRunStart = charDisplayOffset
+                        highlightRunStartIndex = charIndex
+                    }
+                } else {
+                    flushHighlightRun(charIndex)
                 }
             }
+            flushHighlightRun(line.length)
 
             linePlacements += HorizontalLinePlacement(
                 text = line,
@@ -225,6 +272,7 @@ internal class ReaderOcrOverlayRenderer(
                 baselineY = lineTop - fontMetrics.top,
                 startDisplayOffset = displayOffset,
                 highlightSegments = highlightSegments,
+                highlightText = highlightText,
             )
             displayOffset += line.length
             if (index < lines.lastIndex) {
@@ -370,6 +418,31 @@ internal class ReaderOcrOverlayRenderer(
             cp in 0xAC00..0xD7AF || cp in 0x1100..0x11FF ||
             cp in 0x3100..0x312F
     }
+
+    companion object {
+        /**
+         * Returns [Color.BLACK] or [Color.WHITE] - whichever has higher contrast
+         * against [background] - using the WCAG relative-luminance formula.
+         */
+        fun contrastTextColor(background: Int): Int {
+            fun linearize(c: Int): Double {
+                val s = c / 255.0
+                return if (s <= 0.04045) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+            }
+            val r = linearize(Color.red(background))
+            val g = linearize(Color.green(background))
+            val b = linearize(Color.blue(background))
+            val luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            // Contrast ratio against white = (1 + 0.05) / (luminance + 0.05)
+            // Contrast ratio against black = (luminance + 0.05) / (0 + 0.05)
+            // Choose whichever is larger.
+            return if ((1.05 / (luminance + 0.05)) >= ((luminance + 0.05) / 0.05)) {
+                Color.WHITE
+            } else {
+                Color.BLACK
+            }
+        }
+    }
 }
 
 internal sealed interface ReaderOcrOverlayLayout {
@@ -411,6 +484,8 @@ internal data class HorizontalLinePlacement(
     val baselineY: Float,
     val startDisplayOffset: Int,
     val highlightSegments: List<RectF>,
+    /** Contiguous runs of highlighted characters as (text, x) for contrast-color redraw. */
+    val highlightText: List<Pair<String, Float>> = emptyList(),
 )
 
 private data class VerticalGlyph(
