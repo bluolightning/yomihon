@@ -51,8 +51,8 @@ import logcat.LogPriority
 import mihon.domain.ocr.model.OcrBoundingBox
 import mihon.domain.ocr.model.OcrPageResult
 import mihon.domain.ocr.model.flattenOcrTextForQuery
-import mihon.domain.panel.model.DebugPanelDetection
 import mihon.domain.ocr.model.normalizeOcrTextForDisplay
+import mihon.domain.panel.model.DebugPanelDetection
 import okio.BufferedSource
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.Panel
