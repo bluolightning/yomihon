@@ -812,15 +812,15 @@ open class ReaderPageImageView @JvmOverloads constructor(
     }
 
     private fun rawPointToLocalPoint(rawX: Float, rawY: Float): PointF? {
-        val screenLocation = IntArray(2)
-        val windowLocation = IntArray(2)
-        getLocationOnScreen(screenLocation)
-        getLocationInWindow(windowLocation)
+        val globalMatrix = Matrix()
+        transformMatrixToGlobal(globalMatrix)
 
-        return PointF(
-            rawX - screenLocation[0] + windowLocation[0],
-            rawY - screenLocation[1] + windowLocation[1],
-        )
+        val inverse = Matrix()
+        if (!globalMatrix.invert(inverse)) return null
+
+        val points = floatArrayOf(rawX, rawY)
+        inverse.mapPoints(points)
+        return PointF(points[0], points[1])
     }
 
     private fun screenRectToLocalRect(screenRect: RectF): RectF? {
@@ -900,18 +900,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
         pageResult: OcrPageResult,
     ): RectF? {
         val localRect = boundingBoxToDisplayedRect(boundingBox, pageResult) ?: return null
-
-        val screenLocation = IntArray(2)
-        val windowLocation = IntArray(2)
-        getLocationOnScreen(screenLocation)
-        getLocationInWindow(windowLocation)
-
-        return RectF(
-            localRect.left + screenLocation[0] - windowLocation[0],
-            localRect.top + screenLocation[1] - windowLocation[1],
-            localRect.right + screenLocation[0] - windowLocation[0],
-            localRect.bottom + screenLocation[1] - windowLocation[1],
-        )
+        val globalMatrix = Matrix()
+        transformMatrixToGlobal(globalMatrix)
+        return RectF(localRect).also(globalMatrix::mapRect)
     }
 
     private fun boundingBoxToDisplayedRect(
