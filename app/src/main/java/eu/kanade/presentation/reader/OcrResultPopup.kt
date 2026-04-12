@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import eu.kanade.presentation.dictionary.components.DictResultContentScale
 import eu.kanade.presentation.dictionary.components.DictionaryResults
 import eu.kanade.tachiyomi.ui.dictionary.DictionarySearchScreenModel
 import mihon.domain.dictionary.model.DictionaryTerm
@@ -120,7 +119,6 @@ fun OcrResultPopup(
                 ) {
                     CompositionLocalProvider(
                         LocalDensity provides scaledDensity,
-                        DictResultContentScale provides contentScale,
                     ) {
                         DictionaryResults(
                             modifier = Modifier.fillMaxSize(),
