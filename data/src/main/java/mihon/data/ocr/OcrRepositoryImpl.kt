@@ -36,7 +36,15 @@ class OcrRepositoryImpl(
     private val preferenceStore = AndroidPreferenceStore(context)
     private val ocrModelPref = preferenceStore.getEnum("pref_ocr_model", OcrModel.LEGACY)
 
-    private val environment by lazy { Environment.create() }
+    private val environmentResult by lazy {
+        runCatching { Environment.create() }
+            .onFailure { error ->
+                logcat(LogPriority.WARN, error) {
+                    "LiteRT environment unavailable; local OCR engines will fall back"
+                }
+            }
+    }
+
     private val textPostprocessor by lazy { TextPostprocessor() }
     private val cacheStore by lazy { OcrCacheStore(context) }
 
@@ -99,26 +107,51 @@ class OcrRepositoryImpl(
         }
     }
 
-    private suspend fun recognizeWithEngine(type: EngineType, image: Bitmap): String {
-        return engineLocks.withTextEngineLock(type) {
-            val engine = when (type) {
-                EngineType.FAST -> {
-                    fastEngine ?: FastOcrEngine(context, environment, textPostprocessor).also {
-                        fastEngine = it
-                    }
-                }
-                EngineType.LEGACY -> {
-                    legacyEngine ?: LegacyOcrEngine(context, environment, textPostprocessor).also {
-                        legacyEngine = it
-                    }
-                }
-                EngineType.GLENS -> {
-                    glensEngine ?: GlensOcrEngine().also {
-                        glensEngine = it
-                    }
+    private fun requireEnvironment(): Environment {
+        return environmentResult.getOrElse { cause ->
+            throw OcrException.InitializationError(cause)
+        }
+    }
+
+    private fun localOcrAvailable(): Boolean {
+        return environmentResult.isSuccess
+    }
+
+    private fun engineFor(type: EngineType): OcrEngine {
+        return when (type) {
+            EngineType.FAST -> {
+                fastEngine ?: FastOcrEngine(context, requireEnvironment(), textPostprocessor).also {
+                    fastEngine = it
                 }
             }
-            engine.recognizeText(image)
+            EngineType.LEGACY -> {
+                legacyEngine ?: LegacyOcrEngine(context, requireEnvironment(), textPostprocessor).also {
+                    legacyEngine = it
+                }
+            }
+            EngineType.GLENS -> {
+                glensEngine ?: GlensOcrEngine().also {
+                    glensEngine = it
+                }
+            }
+        }
+    }
+
+    private fun detectionEngine(): DetOcrEngine {
+        return detEngine ?: (
+            if (localOcrAvailable()) {
+                UnavailableDetOcrEngine() // TODO: replace with real DetOcrEngine with a local model
+            } else {
+                UnavailableDetOcrEngine()
+            }
+            ).also {
+            detEngine = it
+        }
+    }
+
+    private suspend fun recognizeWithEngine(type: EngineType, image: Bitmap): String {
+        return engineLocks.withTextEngineLock(type) {
+            engineFor(type).recognizeText(image)
         }
     }
 
@@ -151,8 +184,7 @@ class OcrRepositoryImpl(
         return withActiveOperation {
             submitTask(PrioritizedTaskQueue.Priority.HIGH) {
                 image.useBitmap { bitmap ->
-                    val primary = selectedEngineType()
-                    recognizeWithFallback(primary, bitmap)
+                    recognizeWithFallback(selectedEngineType(), bitmap)
                 }
             }
         }
@@ -306,9 +338,7 @@ class OcrRepositoryImpl(
     ): OcrPageResult {
         val boxes = submitTask(PrioritizedTaskQueue.Priority.NORMAL) {
             engineLocks.withDetectionLock {
-                val engine = detEngine ?: UnavailableDetOcrEngine().also {
-                    detEngine = it
-                }
+                val engine = detectionEngine()
                 engine.detectTextRegions(image)
             }
         }
