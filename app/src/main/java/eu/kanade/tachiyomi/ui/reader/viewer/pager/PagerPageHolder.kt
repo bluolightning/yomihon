@@ -162,6 +162,7 @@ class PagerPageHolder(
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
+        setFileCropRect(null)
         clearCachedOcrResult()
     }
 
@@ -172,6 +173,7 @@ class PagerPageHolder(
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
+        setFileCropRect(null)
         clearCachedOcrResult()
     }
 
@@ -182,6 +184,7 @@ class PagerPageHolder(
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
+        setFileCropRect(null)
         clearCachedOcrResult()
     }
 
@@ -204,6 +207,11 @@ class PagerPageHolder(
             val loadResult = withIOContext {
                 val source = streamFn().use { process(item, Buffer().readFrom(it)) }
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
+                val cropRect = if (!isAnimated && viewer.config.imageCropBorders) {
+                    ImageUtil.detectBorderCrop(source)
+                } else {
+                    null
+                }
                 val background = if (!isAnimated && viewer.config.automaticBackground) {
                     ImageUtil.chooseBackground(context, source.peek().inputStream())
                 } else {
@@ -214,9 +222,10 @@ class PagerPageHolder(
                 } else {
                     null
                 }
-                LoadResult(source, isAnimated, background, panelBitmap)
+                LoadResult(source, isAnimated, background, panelBitmap, cropRect)
             }
             withUIContext {
+                setFileCropRect(loadResult.cropRect)
                 setImage(
                     loadResult.source,
                     loadResult.isAnimated,
@@ -503,6 +512,7 @@ class PagerPageHolder(
     private fun setError(error: Throwable?) {
         progressIndicator?.hide()
         showErrorLayout(error)
+        setFileCropRect(null)
         clearCachedOcrResult()
     }
 
@@ -582,6 +592,7 @@ private data class LoadResult(
     val isAnimated: Boolean,
     val background: Drawable?,
     val panelBitmap: DecodedPanelBitmap?,
+    val cropRect: android.graphics.Rect?,
 )
 
 private data class DecodedPanelBitmap(

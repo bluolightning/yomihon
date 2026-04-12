@@ -88,6 +88,10 @@ open class ReaderPageImageView @JvmOverloads constructor(
     private val panelDebugOverlay = PanelDebugOverlayView(context)
 
     private var config: Config? = null
+
+    // Reader-side workaround since image decoder doesn't display crop bounds:
+    // crop-borders shifts the displayed image, but OCR/panel coordinates remain in original image space.
+    private var fileCropRect: Rect? = null
     private var cachedOcrResult: OcrPageResult? = null
     private var ocrPageIdentity: ReaderOcrPageIdentity? = null
     private var activeOcrOverlay: ReaderActiveOcrOverlay? = null
@@ -326,7 +330,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         detections: List<DebugPanelDetection>,
         bubbles: List<DebugPanelDetection> = emptyList(),
     ) {
-        panelDebugOverlay.setDetections(detections, bubbles, pageView as? SubsamplingScaleImageView)
+        panelDebugOverlay.setDetections(detections, bubbles, pageView as? SubsamplingScaleImageView, fileCropRect)
     }
 
     private fun SubsamplingScaleImageView.landscapeZoom(forward: Boolean) {
@@ -379,12 +383,13 @@ open class ReaderPageImageView @JvmOverloads constructor(
     fun recycle() = pageView?.let {
         clearOcrPageIdentity()
         clearCachedOcrResult()
+        fileCropRect = null
         when (it) {
             is SubsamplingScaleImageView -> it.recycle()
             is AppCompatImageView -> it.dispose()
         }
         it.isVisible = false
-        panelDebugOverlay.setDetections(emptyList(), emptyList(), null)
+        panelDebugOverlay.setDetections(emptyList(), emptyList(), null, null)
     }
 
     fun setOcrPageIdentity(
@@ -403,6 +408,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
         return ocrPageIdentity == pageIdentity
     }
 
+    fun setFileCropRect(rect: Rect?) {
+        fileCropRect = rect?.let(::Rect)
+        invalidateActiveOverlayLayout()
+        invalidate()
+    }
+
     fun sourceRectForScreenRect(screenRect: RectF): Rect? {
         val selectionLocalRect = screenRectToLocalRect(screenRect) ?: return null
         val imageLocalRect = displayedImageLocalRect() ?: return null
@@ -411,15 +422,21 @@ open class ReaderPageImageView @JvmOverloads constructor(
                 return null
             }
         }
-        val topLeftSource = localPointToSourcePoint(clampedLocalRect.left, clampedLocalRect.top) ?: return null
-        val bottomRightSource = localPointToSourcePoint(clampedLocalRect.right, clampedLocalRect.bottom) ?: return null
+        return when (val currentPageView = pageView) {
+            is SubsamplingScaleImageView -> currentPageView.viewToFileRect(clampedLocalRect, fileCropRect)?.toRect()
+            else -> {
+                val topLeftSource = localPointToSourcePoint(clampedLocalRect.left, clampedLocalRect.top) ?: return null
+                val bottomRightSource =
+                    localPointToSourcePoint(clampedLocalRect.right, clampedLocalRect.bottom) ?: return null
 
-        val left = min(topLeftSource.x, bottomRightSource.x).toInt()
-        val top = min(topLeftSource.y, bottomRightSource.y).toInt()
-        val right = max(topLeftSource.x, bottomRightSource.x).toInt()
-        val bottom = max(topLeftSource.y, bottomRightSource.y).toInt()
+                val left = min(topLeftSource.x, bottomRightSource.x).toInt()
+                val top = min(topLeftSource.y, bottomRightSource.y).toInt()
+                val right = max(topLeftSource.x, bottomRightSource.x).toInt()
+                val bottom = max(topLeftSource.y, bottomRightSource.y).toInt()
 
-        return Rect(left, top, right, bottom).takeIf { it.width() > 0 && it.height() > 0 }
+                Rect(left, top, right, bottom).takeIf { it.width() > 0 && it.height() > 0 }
+            }
+        }
     }
 
     fun setActiveOcrOverlay(overlay: ReaderActiveOcrOverlay?) {
@@ -695,7 +712,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     fun tryConsumeOcrTapLocal(localX: Float, localY: Float): Boolean {
         val result = cachedOcrResult ?: return false
-        val sourcePoint = localPointToSourcePoint(localX, localY) ?: return false
+        val sourcePoint = localPointToFilePoint(localX, localY) ?: return false
         val region = result.findRegionAt(sourcePoint.x, sourcePoint.y) ?: return false
 
         val displayText = normalizeOcrTextForDisplay(region.text)
@@ -781,30 +798,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         boundingBox: OcrBoundingBox,
         pageResult: OcrPageResult,
     ): RectF? {
-        val localRect = when (val currentPageView = pageView) {
-            is SubsamplingScaleImageView -> {
-                if (!currentPageView.isReady) return null
-                val sourceRect = boundingBox.toSourceRect(pageResult)
-                val topLeft = currentPageView.sourceToViewCoord(sourceRect.left, sourceRect.top) ?: return null
-                val bottomRight = currentPageView.sourceToViewCoord(sourceRect.right, sourceRect.bottom) ?: return null
-                RectF(
-                    minOf(topLeft.x, bottomRight.x),
-                    minOf(topLeft.y, bottomRight.y),
-                    maxOf(topLeft.x, bottomRight.x),
-                    maxOf(topLeft.y, bottomRight.y),
-                )
-            }
-            is ImageView -> {
-                val drawable = currentPageView.drawable ?: return null
-                val sourceRect = boundingBox.toSourceRect(
-                    imageWidth = drawable.intrinsicWidth,
-                    imageHeight = drawable.intrinsicHeight,
-                )
-                RectF(sourceRect).also(currentPageView.imageMatrix::mapRect)
-            }
-            else -> return null
-        }
-
+        val localRect = boundingBoxToDisplayedRect(boundingBox, pageResult) ?: return null
         return RectF(
             localRect.left.coerceIn(0f, width.toFloat()),
             localRect.top.coerceIn(0f, height.toFloat()),
@@ -894,33 +888,18 @@ open class ReaderPageImageView @JvmOverloads constructor(
         }
     }
 
+    private fun localPointToFilePoint(localX: Float, localY: Float): PointF? {
+        return when (val currentPageView = pageView) {
+            is SubsamplingScaleImageView -> currentPageView.viewToFilePoint(localX, localY, fileCropRect)
+            else -> localPointToSourcePoint(localX, localY)
+        }
+    }
+
     private fun boundingBoxToScreenRect(
         boundingBox: OcrBoundingBox,
         pageResult: OcrPageResult,
     ): RectF? {
-        val localRect = when (val currentPageView = pageView) {
-            is SubsamplingScaleImageView -> {
-                if (!currentPageView.isReady) return null
-                val sourceRect = boundingBox.toSourceRect(pageResult)
-                val topLeft = currentPageView.sourceToViewCoord(sourceRect.left, sourceRect.top) ?: return null
-                val bottomRight = currentPageView.sourceToViewCoord(sourceRect.right, sourceRect.bottom) ?: return null
-                RectF(
-                    minOf(topLeft.x, bottomRight.x),
-                    minOf(topLeft.y, bottomRight.y),
-                    maxOf(topLeft.x, bottomRight.x),
-                    maxOf(topLeft.y, bottomRight.y),
-                )
-            }
-            is ImageView -> {
-                val drawable = currentPageView.drawable ?: return null
-                val sourceRect = boundingBox.toSourceRect(
-                    imageWidth = drawable.intrinsicWidth,
-                    imageHeight = drawable.intrinsicHeight,
-                )
-                RectF(sourceRect).also(currentPageView.imageMatrix::mapRect)
-            }
-            else -> return null
-        }
+        val localRect = boundingBoxToDisplayedRect(boundingBox, pageResult) ?: return null
 
         val screenLocation = IntArray(2)
         val windowLocation = IntArray(2)
@@ -933,6 +912,27 @@ open class ReaderPageImageView @JvmOverloads constructor(
             localRect.right + screenLocation[0] - windowLocation[0],
             localRect.bottom + screenLocation[1] - windowLocation[1],
         )
+    }
+
+    private fun boundingBoxToDisplayedRect(
+        boundingBox: OcrBoundingBox,
+        pageResult: OcrPageResult,
+    ): RectF? {
+        return when (val currentPageView = pageView) {
+            is SubsamplingScaleImageView -> currentPageView.fileToViewRect(
+                boundingBox.toSourceRect(pageResult),
+                fileCropRect,
+            )
+            is ImageView -> {
+                val drawable = currentPageView.drawable ?: return null
+                val sourceRect = boundingBox.toSourceRect(
+                    imageWidth = drawable.intrinsicWidth,
+                    imageHeight = drawable.intrinsicHeight,
+                )
+                RectF(sourceRect).also(currentPageView.imageMatrix::mapRect)
+            }
+            else -> null
+        }
     }
 
     private fun Int.getSystemScaledDuration(): Int {
@@ -979,6 +979,105 @@ private fun OcrBoundingBox.toSourceRect(
     )
 }
 
+private fun SubsamplingScaleImageView.viewToFilePoint(
+    localX: Float,
+    localY: Float,
+    cropRect: Rect?,
+): PointF? {
+    if (!isReady) return null
+    val sourcePoint = viewToSourceCoord(localX, localY) ?: return null
+    return sourcePointToFilePoint(sourcePoint.x, sourcePoint.y, cropRect)
+}
+
+private fun SubsamplingScaleImageView.viewToFileRect(localRect: RectF, cropRect: Rect?): RectF? {
+    val topLeft = viewToFilePoint(localRect.left, localRect.top, cropRect) ?: return null
+    val bottomRight = viewToFilePoint(localRect.right, localRect.bottom, cropRect) ?: return null
+    return RectF(
+        minOf(topLeft.x, bottomRight.x),
+        minOf(topLeft.y, bottomRight.y),
+        maxOf(topLeft.x, bottomRight.x),
+        maxOf(topLeft.y, bottomRight.y),
+    )
+}
+
+private fun SubsamplingScaleImageView.fileToViewRect(fileRect: RectF, cropRect: Rect?): RectF? {
+    val topLeft = fileToViewPoint(fileRect.left, fileRect.top, cropRect) ?: return null
+    val bottomRight = fileToViewPoint(fileRect.right, fileRect.bottom, cropRect) ?: return null
+    return RectF(
+        minOf(topLeft.x, bottomRight.x),
+        minOf(topLeft.y, bottomRight.y),
+        maxOf(topLeft.x, bottomRight.x),
+        maxOf(topLeft.y, bottomRight.y),
+    )
+}
+
+private fun SubsamplingScaleImageView.fileToViewPoint(
+    fileX: Float,
+    fileY: Float,
+    cropRect: Rect?,
+): PointF? {
+    if (!isReady) return null
+    val sourcePoint = filePointToSourcePoint(fileX, fileY, cropRect) ?: return null
+    return sourceToViewCoord(sourcePoint.x, sourcePoint.y)
+}
+
+private fun SubsamplingScaleImageView.sourcePointToFilePoint(
+    sourceX: Float,
+    sourceY: Float,
+    cropRegion: Rect?,
+): PointF {
+    val filePoint = when (imageRotation) {
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_90 -> {
+            PointF(sourceY, sHeight - sourceX)
+        }
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_180 -> {
+            PointF(sWidth - sourceX, sHeight - sourceY)
+        }
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_270 -> {
+            PointF(sWidth - sourceY, sourceX)
+        }
+        else -> PointF(sourceX, sourceY)
+    }
+    if (cropRegion != null) {
+        filePoint.offset(cropRegion.left.toFloat(), cropRegion.top.toFloat())
+    }
+    return filePoint
+}
+
+private fun SubsamplingScaleImageView.filePointToSourcePoint(
+    fileX: Float,
+    fileY: Float,
+    cropRegion: Rect?,
+): PointF? {
+    val croppedX = fileX - (cropRegion?.left ?: 0)
+    val croppedY = fileY - (cropRegion?.top ?: 0)
+    val sourcePoint = when (imageRotation) {
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_90 -> {
+            PointF(sHeight - croppedY, croppedX)
+        }
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_180 -> {
+            PointF(sWidth - croppedX, sHeight - croppedY)
+        }
+        com.davemorrissey.labs.subscaleview.ImageRotation.ROTATION_270 -> {
+            PointF(croppedY, sWidth - croppedX)
+        }
+        else -> PointF(croppedX, croppedY)
+    }
+    return sourcePoint.takeIf {
+        it.x in 0f..sWidth.toFloat() &&
+            it.y in 0f..sHeight.toFloat()
+    }
+}
+
+private fun RectF.toRect(): Rect? {
+    return Rect(
+        left.toInt(),
+        top.toInt(),
+        right.toInt(),
+        bottom.toInt(),
+    ).takeIf { it.width() > 0 && it.height() > 0 }
+}
+
 private class PanelDebugOverlayView(
     context: Context,
 ) : View(context) {
@@ -986,6 +1085,7 @@ private class PanelDebugOverlayView(
     private var detections: List<DebugPanelDetection> = emptyList()
     private var bubbles: List<DebugPanelDetection> = emptyList()
     private var pageView: SubsamplingScaleImageView? = null
+    private var cropRect: Rect? = null
 
     private val panelBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(220, 0, 255, 120)
@@ -1011,10 +1111,12 @@ private class PanelDebugOverlayView(
         detections: List<DebugPanelDetection>,
         bubbles: List<DebugPanelDetection>,
         pageView: SubsamplingScaleImageView?,
+        cropRect: Rect?,
     ) {
         this.detections = detections
         this.bubbles = bubbles
         this.pageView = pageView
+        this.cropRect = cropRect?.let(::Rect)
         isVisible = (detections.isNotEmpty() || bubbles.isNotEmpty()) && pageView != null
         invalidate()
     }
@@ -1037,19 +1139,12 @@ private class PanelDebugOverlayView(
         prefix: String,
     ) {
         items.forEachIndexed { index, detection ->
-            val topLeft = pageView.sourceToViewCoord(
-                detection.rect.left.toFloat(),
-                detection.rect.top.toFloat(),
-            ) ?: return@forEachIndexed
-            val bottomRight = pageView.sourceToViewCoord(
-                detection.rect.right.toFloat(),
-                detection.rect.bottom.toFloat(),
-            ) ?: return@forEachIndexed
-
-            val left = minOf(topLeft.x, bottomRight.x)
-            val top = minOf(topLeft.y, bottomRight.y)
-            val right = maxOf(topLeft.x, bottomRight.x)
-            val bottom = maxOf(topLeft.y, bottomRight.y)
+            val fileRect = RectF(detection.rect)
+            val viewRect = pageView.fileToViewRect(fileRect, cropRect) ?: return@forEachIndexed
+            val left = viewRect.left
+            val top = viewRect.top
+            val right = viewRect.right
+            val bottom = viewRect.bottom
 
             canvas.drawRect(left, top, right, bottom, boxPaint)
 
