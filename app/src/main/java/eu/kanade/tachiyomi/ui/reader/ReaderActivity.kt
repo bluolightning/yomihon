@@ -1005,12 +1005,16 @@ class ReaderActivity : BaseActivity() {
         lifecycleScope.launchIO {
             try {
                 val captures = withUIContext {
-                    viewModel.state.value.viewer?.resolveSelectionCaptures(
+                    val resolvedCaptures = viewModel.state.value.viewer?.resolveSelectionCaptures(
                         ReaderSelectionRegion(
                             screenRect = dialogRootRectToScreenRect(rect),
                             anchorScreenPoint = dialogRootOffsetToScreenPoint(start),
                         ),
                     )
+                    if (!resolvedCaptures.isNullOrEmpty()) {
+                        exitOcrMode()
+                    }
+                    resolvedCaptures
                 }.orEmpty()
                     .takeIf { it.isNotEmpty() }
                     ?: throw IllegalStateException("Failed to resolve current page region")
@@ -1030,10 +1034,6 @@ class ReaderActivity : BaseActivity() {
                         croppedBitmap.recycle()
                     }
                 }
-
-                withUIContext {
-                    exitOcrMode()
-                }
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "Failed to capture selected reader region for Anki export" }
                 withUIContext {
@@ -1051,12 +1051,16 @@ class ReaderActivity : BaseActivity() {
         lifecycleScope.launchIO {
             try {
                 val captures = withUIContext {
-                    viewModel.state.value.viewer?.resolveSelectionCaptures(
+                    val resolvedCaptures = viewModel.state.value.viewer?.resolveSelectionCaptures(
                         ReaderSelectionRegion(
                             screenRect = dialogRootRectToScreenRect(rect),
                             anchorScreenPoint = dialogRootOffsetToScreenPoint(start),
                         ),
                     )
+                    if (!resolvedCaptures.isNullOrEmpty()) {
+                        exitOcrMode()
+                    }
+                    resolvedCaptures
                 }.orEmpty()
                     .takeIf { it.isNotEmpty() }
                     ?: throw IllegalStateException("Failed to resolve current page region")
@@ -1064,10 +1068,6 @@ class ReaderActivity : BaseActivity() {
 
                 // The ViewModel takes ownership of the bitmap for OCR processing.
                 viewModel.processOcrRegion(croppedBitmap)
-
-                withUIContext {
-                    exitOcrMode()
-                }
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "Failed to capture selected reader region for OCR" }
                 withUIContext {
