@@ -10,7 +10,18 @@ The format is a modified version of [Keep a Changelog](https://keepachangelog.co
 - `Fixed` - for any bug fixes.
 - `Other` - for technical stuff.
 
-## [v0.3.0] - 2026-04-05
+## [v0.3.1] - 2026-04-14
+
+### Improved
+- Better performance for selecting a region
+
+### Fixed
+- Fix new region selection
+  - Prefer loaded pages over refetching
+  - Fix selection region for vertical reader
+  - Allow selection across multiple pages for vertical reader
+
+## [v0.3.0] - 2026-04-12
 
 ### Added
 - Panel-by-panel reading mode (@leoxs22)
@@ -141,7 +152,8 @@ The format is a modified version of [Keep a Changelog](https://keepachangelog.co
 - The full changelog for Mihon releases is available in their [repository](https://github.com/mihonapp/mihon/blob/main/CHANGELOG.md).
 
 
-[unreleased]: https://github.com/yomihon/yomihon/compare/v0.2.0...main
+[unreleased]: https://github.com/yomihon/yomihon/compare/v0.3.1...main
+[v0.3.1]: https://github.com/yomihon/yomihon/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/yomihon/yomihon/compare/v0.2.5...v0.3.0
 [v0.2.5]: https://github.com/yomihon/yomihon/compare/v0.2.4...v0.2.5
 [v0.2.4]: https://github.com/yomihon/yomihon/compare/v0.2.2...v0.2.4
