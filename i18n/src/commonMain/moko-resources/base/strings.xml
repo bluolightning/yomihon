@@ -1224,6 +1224,9 @@
     <string name="pref_dictionary_ocr_result_popup_scale_value">%1$d%%</string>
     <string name="pref_dictionary_ocr_result_dim_background">Darken background</string>
     <string name="pref_dictionary_ocr_result_dim_background_summary">Darken the reader background while OCR results are open</string>
+    <string name="error_anki_image_fail">Failed to get Anki image</string>
+    <string name="warn_ocr_image_decode">OCR Failed: Image Decoding Issue</string>
+    <string name="error_ocr_image_fail">OCR Failed: Unexpected Image Issue</string>
     <string name="error_unknown">Unknown OCR Error Occurred</string>
     <string name="ocr_memory_error">Not Enough Memory to Run OCR</string>
     <string name="ocr_initialization_error">OCR Initialization Failed</string>

@@ -21,7 +21,7 @@ internal class ReaderSelectionCropper(
     suspend fun cropSelectionBitmap(
         manga: Manga,
         captures: List<ReaderSelectionCapture>,
-    ): Bitmap {
+    ): Bitmap? {
         val resolvedPagesByChapter = mutableMapOf<Chapter, ResolvedOcrPages>()
         try {
             if (captures.size == 1) {
@@ -32,11 +32,20 @@ internal class ReaderSelectionCropper(
                 "Selection crop stitching ${captures.size} page segments"
             }
 
-            val parts = captures.map { capture ->
-                CroppedSelectionPart(
-                    bitmap = cropPageBitmap(manga, capture, resolvedPagesByChapter),
-                    screenRect = capture.screenRect,
-                )
+            val parts = captures.mapNotNull { capture ->
+                cropPageBitmap(manga, capture, resolvedPagesByChapter)?.let { bitmap ->
+                    CroppedSelectionPart(
+                        bitmap = bitmap,
+                        screenRect = capture.screenRect,
+                    )
+                }
+            }
+
+            if (parts.isEmpty()) {
+                logcat(LogPriority.WARN) {
+                    "Selection crop unavailable for all ${captures.size} page segments"
+                }
+                return null
             }
 
             try {
@@ -84,7 +93,7 @@ internal class ReaderSelectionCropper(
         manga: Manga,
         capture: ReaderSelectionCapture,
         resolvedPagesByChapter: MutableMap<Chapter, ResolvedOcrPages>,
-    ): Bitmap {
+    ): Bitmap? {
         val page = capture.page
         val sourceRect = capture.sourceRect
         val chapter = page.chapter.chapter.toDomainChapter()
@@ -111,7 +120,10 @@ internal class ReaderSelectionCropper(
             return bitmap
         }
 
-        throw IllegalStateException("Failed to decode page bitmap")
+        logcat(LogPriority.WARN) {
+            "Selection crop page=${page.index} unavailable"
+        }
+        return null
     }
 
     private suspend fun getPageInput(

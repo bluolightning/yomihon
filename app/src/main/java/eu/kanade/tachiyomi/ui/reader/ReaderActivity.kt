@@ -52,6 +52,7 @@ import com.google.android.material.elevation.SurfaceColors
 import com.google.android.material.transition.platform.MaterialContainerTransform
 import com.hippo.unifile.UniFile
 import dev.chrisbanes.insetter.applyInsetter
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.core.util.ifSourcesLoaded
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.dictionary.DictionaryPreferences
@@ -999,7 +1000,11 @@ class ReaderActivity : BaseActivity() {
     ) {
         lifecycleScope.launchIO {
             try {
-                val croppedBitmap = cropCurrentSelectionBitmap(rect)
+                val croppedBitmap = requireCurrentSelectionBitmap(
+                    rect = rect,
+                    failureLogMessage = "Selected reader region unavailable for Anki export",
+                    failureMessageRes = MR.strings.error_anki_image_fail,
+                ) ?: return@launchIO
 
                 try {
                     val uri = imageSaver.save(
@@ -1019,7 +1024,7 @@ class ReaderActivity : BaseActivity() {
                 logcat(LogPriority.ERROR, e) { "Failed to capture selected reader region for Anki export" }
                 withUIContext {
                     exitOcrMode()
-                    toast(MR.strings.action_cancel)
+                    toast(MR.strings.error_anki_image_fail)
                 }
             }
         }
@@ -1030,7 +1035,11 @@ class ReaderActivity : BaseActivity() {
     ) {
         lifecycleScope.launchIO {
             try {
-                val croppedBitmap = cropCurrentSelectionBitmap(rect)
+                val croppedBitmap = requireCurrentSelectionBitmap(
+                    rect = rect,
+                    failureLogMessage = "Selected reader region unavailable for OCR",
+                    failureMessageRes = MR.strings.warn_ocr_image_decode,
+                ) ?: return@launchIO
 
                 // The ViewModel takes ownership of the bitmap for OCR processing.
                 viewModel.processOcrRegion(croppedBitmap)
@@ -1038,15 +1047,33 @@ class ReaderActivity : BaseActivity() {
                 logcat(LogPriority.ERROR, e) { "Failed to capture selected reader region for OCR" }
                 withUIContext {
                     exitOcrMode()
-                    toast(MR.strings.action_cancel)
+                    toast(MR.strings.error_ocr_image_fail)
                 }
             }
         }
     }
 
+    private suspend fun requireCurrentSelectionBitmap(
+        rect: android.graphics.RectF,
+        failureLogMessage: String,
+        failureMessageRes: StringResource,
+    ): Bitmap? {
+        val croppedBitmap = cropCurrentSelectionBitmap(rect)
+        if (croppedBitmap != null) {
+            return croppedBitmap
+        }
+
+        logcat(LogPriority.WARN) { failureLogMessage }
+        withUIContext {
+            exitOcrMode()
+            toast(failureMessageRes)
+        }
+        return null
+    }
+
     private suspend fun cropCurrentSelectionBitmap(
         rect: android.graphics.RectF,
-    ): Bitmap {
+    ): Bitmap? {
         val captures = resolveSelectionCaptures(rect)
         val manga = viewModel.manga ?: throw IllegalStateException("Manga unavailable")
         return selectionBitmapCropper.cropSelectionBitmap(manga, captures)
