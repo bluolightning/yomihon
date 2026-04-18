@@ -6,11 +6,13 @@ import android.graphics.RectF
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import eu.kanade.tachiyomi.data.ocr.OcrPageInput
+import eu.kanade.tachiyomi.data.ocr.openCroppedBitmap
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 
 interface ReaderSelectionBitmapSource {
-    fun decodeSelectionBitmap(sourceRect: Rect): Bitmap?
+    fun selectionPageInput(): OcrPageInput?
 }
 
 data class ReaderSelectionCapture(
@@ -19,8 +21,8 @@ data class ReaderSelectionCapture(
     val screenRect: RectF,
     val bitmapSource: ReaderSelectionBitmapSource? = null,
 ) {
-    fun decodeBitmap(): Bitmap? {
-        return bitmapSource?.decodeSelectionBitmap(sourceRect)
+    suspend fun decodeBitmap(): Bitmap? {
+        return bitmapSource?.selectionPageInput()?.openCroppedBitmap(sourceRect)
     }
 }
 

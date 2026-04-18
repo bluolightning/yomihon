@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
+import okio.BufferedSource
+import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.ImageUtil
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -69,6 +71,73 @@ internal fun decodeArchiveBitmapRegion(
     }
 }
 
+internal fun buildBufferedOcrPageInput(
+    pageIndex: Int,
+    source: BufferedSource,
+): OcrPageInput {
+    return OcrPageInput(
+        pageIndex = pageIndex,
+        openBitmap = {
+            withIOContext {
+                decodeBufferedSourceBitmap(source)
+            }
+        },
+        openBitmapRegion = { sourceRect ->
+            withIOContext {
+                decodeBufferedSourceBitmapRegion(source, sourceRect)
+            }
+        },
+    )
+}
+
+internal fun buildStreamOcrPageInput(
+    pageIndex: Int,
+    openStream: suspend () -> InputStream?,
+): OcrPageInput {
+    return OcrPageInput(
+        pageIndex = pageIndex,
+        openBitmap = {
+            withIOContext {
+                openStream()?.use(::decodeBitmap)
+                    ?: openStream()?.use(::decodeArchiveBitmap)
+            }
+        },
+        openBitmapRegion = { sourceRect ->
+            withIOContext {
+                openStream()?.use { stream -> decodeBitmapRegion(stream, sourceRect) }
+                    ?: openStream()?.use { stream -> decodeArchiveBitmapRegion(stream, sourceRect) }
+            }
+        },
+    )
+}
+
+internal suspend fun OcrPageInput.openCroppedBitmap(sourceRect: Rect): Bitmap? {
+    openBitmapRegion(sourceRect)?.let { return it }
+
+    val fullBitmap = openBitmap() ?: return null
+    return try {
+        cropDecodedBitmap(fullBitmap, sourceRect)
+    } catch (_: Exception) {
+        if (!fullBitmap.isRecycled) {
+            fullBitmap.recycle()
+        }
+        null
+    }
+}
+
+internal fun decodeBufferedSourceBitmap(source: BufferedSource): Bitmap? {
+    return source.peek().inputStream().use(::decodeBitmap)
+        ?: source.peek().inputStream().use(::decodeArchiveBitmap)
+}
+
+internal fun decodeBufferedSourceBitmapRegion(
+    source: BufferedSource,
+    sourceRect: Rect,
+): Bitmap? {
+    return source.peek().inputStream().use { stream -> decodeBitmapRegion(stream, sourceRect) }
+        ?: source.peek().inputStream().use { stream -> decodeArchiveBitmapRegion(stream, sourceRect) }
+}
+
 internal fun isArchiveImageEntry(
     name: String,
     stream: InputStream,
@@ -94,6 +163,40 @@ private fun hasKnownImageExtension(name: String): Boolean {
 private fun bitmapFactoryOptions(): BitmapFactory.Options {
     return BitmapFactory.Options().apply {
         inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+}
+
+private fun cropDecodedBitmap(
+    fullBitmap: Bitmap,
+    sourceRect: Rect,
+): Bitmap {
+    var keepFullBitmap = false
+    try {
+        val safeRect = Rect(
+            sourceRect.left.coerceIn(0, fullBitmap.width),
+            sourceRect.top.coerceIn(0, fullBitmap.height),
+            sourceRect.right.coerceIn(0, fullBitmap.width),
+            sourceRect.bottom.coerceIn(0, fullBitmap.height),
+        )
+        if (safeRect.width() <= 0 || safeRect.height() <= 0) {
+            throw IllegalStateException("Invalid crop rectangle")
+        }
+
+        val croppedBitmap = Bitmap.createBitmap(
+            fullBitmap,
+            safeRect.left,
+            safeRect.top,
+            safeRect.width(),
+            safeRect.height(),
+        )
+        if (croppedBitmap === fullBitmap) {
+            keepFullBitmap = true
+        }
+        return croppedBitmap
+    } finally {
+        if (!keepFullBitmap && !fullBitmap.isRecycled) {
+            fullBitmap.recycle()
+        }
     }
 }
 

@@ -107,10 +107,13 @@ internal class OcrPageSourceResolver(
                     pageIndex = page.index,
                     openBitmap = {
                         openRemotePageBitmap(page, source, ::decodeBitmap)
+                            ?: openRemotePageBitmap(page, source, ::decodeArchiveBitmap)
                     },
                     openBitmapRegion = { sourceRect ->
                         openRemotePageBitmap(page, source) { stream ->
                             decodeBitmapRegion(stream, sourceRect)
+                        } ?: openRemotePageBitmap(page, source) { stream ->
+                            decodeArchiveBitmapRegion(stream, sourceRect)
                         }
                     },
                 )
@@ -137,7 +140,7 @@ internal class OcrPageSourceResolver(
 
 private val DOWNLOAD_WAIT_TIMEOUT = 15.seconds
 
-internal data class OcrPageInput(
+data class OcrPageInput(
     val pageIndex: Int,
     val openBitmap: suspend () -> Bitmap?,
     val openBitmapRegion: suspend (Rect) -> Bitmap?,

@@ -45,8 +45,8 @@ import com.google.android.material.color.MaterialColors
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.tachiyomi.data.coil.cropBorders
 import eu.kanade.tachiyomi.data.coil.customDecoder
-import eu.kanade.tachiyomi.data.ocr.decodeArchiveBitmapRegion
-import eu.kanade.tachiyomi.data.ocr.decodeBitmapRegion
+import eu.kanade.tachiyomi.data.ocr.OcrPageInput
+import eu.kanade.tachiyomi.data.ocr.buildBufferedOcrPageInput
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonSubsamplingImageView
 import eu.kanade.tachiyomi.util.system.animatorDurationScale
 import eu.kanade.tachiyomi.util.view.isVisibleOnScreen
@@ -100,7 +100,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
     private var activeOcrOverlay: ReaderActiveOcrOverlay? = null
     private var activeOverlayLayout: ReaderOcrOverlayLayout? = null
     private var pendingOnPageReadyDirection: Boolean? = null
-    private var loadedPageSource: BufferedSource? = null
+    private var loadedPageInput: OcrPageInput? = null
 
     private val ocrOverlayBackgroundPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -364,7 +364,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     fun setImage(drawable: Drawable, config: Config) {
         this.config = config
-        loadedPageSource = null
+        loadedPageInput = null
         if (drawable is Animatable) {
             prepareAnimatedImageView()
             setAnimatedImage(drawable, config)
@@ -376,7 +376,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     fun setImage(source: BufferedSource, isAnimated: Boolean, config: Config) {
         this.config = config
-        loadedPageSource = source.takeIf { !isAnimated }
+        loadedPageInput = source
+            .takeIf { !isAnimated }
+            ?.let { buildBufferedOcrPageInput(LOADED_READER_PAGE_INDEX, it) }
         if (isAnimated) {
             prepareAnimatedImageView()
             setAnimatedImage(source, config)
@@ -390,7 +392,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         clearOcrPageIdentity()
         clearCachedOcrResult()
         fileCropRect = null
-        loadedPageSource = null
+        loadedPageInput = null
         when (it) {
             is SubsamplingScaleImageView -> it.recycle()
             is AppCompatImageView -> it.dispose()
@@ -399,14 +401,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
         panelDebugOverlay.setDetections(emptyList(), emptyList(), null, null)
     }
 
-    override fun decodeSelectionBitmap(sourceRect: Rect): Bitmap? {
-        val source = loadedPageSource ?: return null
-        return try {
-            source.peek().inputStream().use { stream -> decodeBitmapRegion(stream, sourceRect) }
-                ?: source.peek().inputStream().use { stream -> decodeArchiveBitmapRegion(stream, sourceRect) }
-        } catch (_: Exception) {
-            null
-        }
+    override fun selectionPageInput(): OcrPageInput? {
+        return loadedPageInput
     }
 
     fun setOcrPageIdentity(
@@ -961,6 +957,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
 private const val MAX_ZOOM_SCALE = 5F
 private const val SKIP_ZOOM_OVERLAP_THRESHOLD = 0.85F
+private const val LOADED_READER_PAGE_INDEX = -1
 
 private fun OcrBoundingBox.toSourceRect(pageResult: OcrPageResult): RectF {
     return toSourceRect(

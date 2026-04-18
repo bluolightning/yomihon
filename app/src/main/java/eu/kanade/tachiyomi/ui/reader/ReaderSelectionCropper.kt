@@ -2,13 +2,13 @@ package eu.kanade.tachiyomi.ui.reader
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Rect
 import android.graphics.RectF
 import androidx.core.graphics.createBitmap
 import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.data.ocr.OcrPageInput
 import eu.kanade.tachiyomi.data.ocr.OcrPageSourceResolver
 import eu.kanade.tachiyomi.data.ocr.ResolvedOcrPages
+import eu.kanade.tachiyomi.data.ocr.openCroppedBitmap
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderSelectionCapture
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -104,20 +104,14 @@ internal class ReaderSelectionCropper(
             resolvedPagesByChapter = resolvedPagesByChapter,
         )
 
-        pageInput.openBitmapRegion(sourceRect)?.let { bitmap ->
+        pageInput.openCroppedBitmap(sourceRect)?.let { bitmap ->
             logcat(LogPriority.DEBUG) {
                 "Selection crop page=${page.index} via OCR source size=${bitmap.width}x${bitmap.height}"
             }
             return bitmap
         }
 
-        logcat(LogPriority.DEBUG) {
-            "Selection crop page=${page.index} fell back to full decode rect=${sourceRect.flattenToString()}"
-        }
-        val fullBitmap = pageInput.openBitmap()
-            ?: throw IllegalStateException("Failed to decode page bitmap")
-
-        return cropDecodedBitmap(fullBitmap, sourceRect)
+        throw IllegalStateException("Failed to decode page bitmap")
     }
 
     private suspend fun getPageInput(
@@ -130,40 +124,6 @@ internal class ReaderSelectionCropper(
             ?: ocrPageSourceResolver.resolve(manga, chapter).also { resolvedPagesByChapter[chapter] = it }
         return resolvedPages.getPageInput(pageIndex)
             ?: throw IllegalStateException("Page unavailable for crop")
-    }
-
-    private fun cropDecodedBitmap(
-        fullBitmap: Bitmap,
-        sourceRect: Rect,
-    ): Bitmap {
-        var keepFullBitmap = false
-        try {
-            val safeRect = Rect(
-                sourceRect.left.coerceIn(0, fullBitmap.width),
-                sourceRect.top.coerceIn(0, fullBitmap.height),
-                sourceRect.right.coerceIn(0, fullBitmap.width),
-                sourceRect.bottom.coerceIn(0, fullBitmap.height),
-            )
-            if (safeRect.width() <= 0 || safeRect.height() <= 0) {
-                throw IllegalStateException("Invalid crop rectangle")
-            }
-
-            val croppedBitmap = Bitmap.createBitmap(
-                fullBitmap,
-                safeRect.left,
-                safeRect.top,
-                safeRect.width(),
-                safeRect.height(),
-            )
-            if (croppedBitmap === fullBitmap) {
-                keepFullBitmap = true
-            }
-            return croppedBitmap
-        } finally {
-            if (!keepFullBitmap && !fullBitmap.isRecycled) {
-                fullBitmap.recycle()
-            }
-        }
     }
 }
 
