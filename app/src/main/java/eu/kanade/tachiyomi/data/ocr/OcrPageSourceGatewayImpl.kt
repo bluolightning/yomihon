@@ -88,7 +88,7 @@ internal class OcrPageSourceGatewayImpl(
             }
 
         val pages = entryNames.mapIndexed { index, entryName ->
-            buildStreamOcrPageInput(
+            buildArchiveStreamOcrPageInput(
                 pageIndex = index,
                 openStream = { reader.getInputStream(entryName) },
             )
@@ -105,7 +105,8 @@ internal class OcrPageSourceGatewayImpl(
         val imagePaths = withIOContext { reader.getImagesFromPages() }
 
         val pages = imagePaths.mapIndexed { index, path ->
-            buildStreamOcrPageInput(
+            // EPUB pages are read through ArchiveReader-backed streams, so avoid the generic stream region decoder.
+            buildArchiveStreamOcrPageInput(
                 pageIndex = index,
                 openStream = { reader.getInputStream(path) },
             )

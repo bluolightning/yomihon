@@ -111,6 +111,25 @@ internal fun buildStreamOcrPageInput(
     )
 }
 
+internal fun buildArchiveStreamOcrPageInput(
+    pageIndex: Int,
+    openStream: suspend () -> InputStream?,
+): OcrPageInput {
+    return OcrPageInput(
+        pageIndex = pageIndex,
+        openBitmap = {
+            withIOContext {
+                openStream()?.use(::decodeArchiveBitmap)
+            }
+        },
+        openBitmapRegion = { sourceRect ->
+            withIOContext {
+                openStream()?.use { stream -> decodeArchiveBitmapRegion(stream, sourceRect) }
+            }
+        },
+    )
+}
+
 internal suspend fun OcrPageInput.openCroppedBitmap(sourceRect: Rect): Bitmap? {
     openBitmapRegion(sourceRect)?.let { return it }
 
